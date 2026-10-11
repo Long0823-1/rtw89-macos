@@ -521,8 +521,50 @@ static void pick_autoconnect(void)
 	pthread_mutex_unlock(&D.lock);
 }
 
+/* every log line gets a time stamp: stderr is routed through a pipe and a thread prefixes each line */
+static int g_log_fd = -1;
+static void *log_thread(void *arg)
+{
+	int rfd = (int)(intptr_t)arg;
+	char buf[4096];
+	size_t n = 0;
+	for (;;) {
+		ssize_t r = read(rfd, buf + n, sizeof buf - n - 1);
+		if (r <= 0) break;
+		n += (size_t)r;
+		char *nl;
+		size_t off = 0;
+		while ((nl = memchr(buf + off, '\n', n - off))) {
+			time_t t = time(NULL);
+			struct tm tm;
+			localtime_r(&t, &tm);
+			char ts[16];
+			strftime(ts, sizeof ts, "%H:%M:%S ", &tm);
+			dprintf(g_log_fd, "%s%.*s\n", ts, (int)(nl - (buf + off)), buf + off);
+			off = (size_t)(nl + 1 - buf);
+		}
+		memmove(buf, buf + off, n - off);
+		n -= off;
+		if (n >= sizeof buf - 1) { dprintf(g_log_fd, "%.*s\n", (int)n, buf); n = 0; }
+	}
+	return NULL;
+}
+
+static void install_log_timestamps(void)
+{
+	int p[2];
+	if (pipe(p)) return;
+	g_log_fd = dup(2);
+	dup2(p[1], 2);
+	close(p[1]);
+	pthread_t t;
+	pthread_create(&t, NULL, log_thread, (void *)(intptr_t)p[0]);
+	pthread_detach(t);
+}
+
 int daemon_main(void)
 {
+	install_log_timestamps();
 	kc_runtime_init();
 	known_load();
 	set_state(D_STARTING, "");
