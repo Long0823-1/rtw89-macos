@@ -32,7 +32,9 @@
 		<key>RTW89HoldVirtualCD</key>
 		<dict>
 			<key>CFBundleIdentifier</key>
-			<string>local.rtw89.hold</string>
+			<string>com.apple.kpi.iokit</string>
+			<key>IOMatchCategory</key>
+			<string>IOUSBMassStorageInterfaceNub</string>
 			<key>IOClass</key>
 			<string>IOService</string>
 			<key>IOProviderClass</key>
