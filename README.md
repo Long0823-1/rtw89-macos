@@ -13,14 +13,13 @@ TP-Link **Archer TX20U Nano**(Realtek **RTL8852B**、USB、Wi-Fi 6)を macOS Tah
 
 ## 仕組み
 ```
-macOS アプリ(メニューバー) ──制御ソケット──▶ rtw89d(root デーモン)
+システム設定 > Wi-Fi ─ RTW89Airport.kext(en3) ─ 共有キュー/レジストリ ─▶ rtw89d(root デーモン)
                                               ├─ rtw89 (Linux 本家のソース、無改変)
                                               ├─ kcompat(Linux カーネル API の互換層) + 簡易 mac80211 + MLME + WPA2/WPA3 supplicant
                                               └─ IOKit USB ── TX20U Nano
                        macOS のネットワーク ◀── utun(L3) + DHCP / ARP / IPv6 ND をデーモン内で処理
 ```
-* 「システム設定」の Wi-Fi 画面には**出ません**(Apple 非公開の IO80211 が必要なため)。接続の操作はメニューバーアプリから行います。
-  kext による統合は今後の課題です(`docs/PROGRESS.md` 参照)。
+* 「システム設定 > Wi-Fi」に出ます。Apple 非公開の IO80211(OCLP の Modern Wireless パッチと、OpenCore で注入する kext)が必要です(`kext/`、`airport/` を参照)。
 
 ## ビルドと実行
 必要なもの: Xcode(コマンドラインツールでなくフル版、DriverKit は不要)、macOS 26 / x86_64 で確認。
@@ -53,12 +52,12 @@ echo status | nc -U /var/run/rtw89d.sock
 
 ## ライセンス
 `rtw89` と Linux のヘッダーは GPL-2.0(rtw89 は GPL-2.0 OR BSD-3-Clause)。リンクした成果物は **GPL-2.0** として扱ってください(`COPYING`、`THIRD_PARTY.md`)。
-自作部分(`port/host/`、`app/`、`install/`、`tools/`)は BSD-3-Clause としても利用できます。
+自作部分(`port/host/`、`airport/src/`、`kext/src/`、`install/`、`tools/`)は BSD-3-Clause としても利用できます。
 
 ---
 ## English summary
 Userspace Wi-Fi driver for the TP-Link Archer TX20U Nano (RTL8852B, USB) on macOS Tahoe / Hackintosh. It builds the **unmodified upstream Linux
 `rtw89` driver** on top of a Linux-kernel-API compatibility layer, with IOKit USB, a minimal mac80211/MLME, a WPA2/WPA3 (SAE) supplicant,
-DHCP/ARP/IPv6-ND handling and a `utun` interface, plus a launchd daemon and a menu bar app. Verified on hardware: scan, WPA2-PSK, WPA3-SAE
+DHCP/ARP/IPv6-ND handling and a `utun` interface, plus a launchd daemon and an IO80211 kext (RTW89Airport) that makes the adapter appear in System Settings > Wi-Fi. Verified on hardware: scan, WPA2-PSK, WPA3-SAE
 (mixed-mode AP), IPv4/IPv6, 80 MHz with Block Ack (~160 Mbit/s down / ~260 Mbit/s up over USB 2.0). It does **not** appear in System Settings > Wi-Fi.
 Experimental; no warranty. Build: `scripts/fetch-firmware.sh && make -C port`. Licence: GPL-2.0 combined work, see `COPYING` and `THIRD_PARTY.md`.
