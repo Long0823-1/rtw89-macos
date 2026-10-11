@@ -30,6 +30,9 @@ static struct {
 	bool want_active, want_open, scan_req, link_lost, route_default, autoconnect;
 	char cur_ssid[33], err[96];
 	time_t connected_at;
+	bool link_up;		/* 802.11 link established (handshake done), before DHCP */
+	unsigned char want_pmk[32];
+	bool want_pmk_set;
 } D = { .lock = PTHREAD_MUTEX_INITIALIZER, .cond = PTHREAD_COND_INITIALIZER, .route_default = false, .autoconnect = true };
 
 /* ---------------- known networks (root-only file) ---------------- */
@@ -201,19 +204,30 @@ extern void airport_bridge_start(void);
 
 /* ---- entry points used by the kext bridge (System Settings Wi-Fi) ---- */
 /* returns 0 on accepted, -1 when the passphrase is missing and the network is not known */
-int daemon_connect_request(const char *ssid, const char *psk, bool open)
+int daemon_connect_request(const char *ssid, const char *psk, bool open, const unsigned char *pmk)
 {
 	char use_psk[65] = "";
+	bool use_pmk = false;
+	pthread_mutex_lock(&D.lock);
+	bool same = (D.state == D_CONNECTED || D.link_up) && !strcmp(D.cur_ssid, ssid);
+	pthread_mutex_unlock(&D.lock);
+	if (same) return 0;	/* already on this network: nothing to do, the link event is already reported */
 	bool use_open = open;
 	if (!open && (!psk || !*psk)) {
 		int k;
 		for (k = 0; k < nknown; k++) if (!strcmp(known[k].ssid, ssid)) break;
-		if (k == nknown) return -1;
-		snprintf(use_psk, sizeof use_psk, "%s", known[k].psk);
-		use_open = known[k].open;
+		if (k == nknown) {
+			if (!pmk) return -1;
+			snprintf(use_psk, sizeof use_psk, "pmk-from-macos");	/* placeholder, the PMK below is used instead */
+			use_pmk = true;
+		} else {
+			snprintf(use_psk, sizeof use_psk, "%s", known[k].psk);
+			use_open = known[k].open;
+		}
 	} else if (!open) snprintf(use_psk, sizeof use_psk, "%s", psk);
-	known_add(ssid, use_psk, use_open);
+	if (!use_pmk) known_add(ssid, use_psk, use_open);
 	pthread_mutex_lock(&D.lock);
+	if (use_pmk) { memcpy(D.want_pmk, pmk, 32); D.want_pmk_set = true; } else D.want_pmk_set = false;
 	snprintf(D.want_ssid, sizeof D.want_ssid, "%s", ssid);
 	snprintf(D.want_psk, sizeof D.want_psk, "%s", use_psk);
 	D.want_open = use_open; D.want_active = true; D.autoconnect = true; D.link_lost = (D.state == D_CONNECTED);
@@ -232,7 +246,7 @@ bool daemon_link_info(char *ssid, size_t n, unsigned char bssid[6], int *chan, i
 {
 	char bs[32] = "";
 	pthread_mutex_lock(&D.lock);
-	bool up = D.state == D_CONNECTED;
+	bool up = D.state == D_CONNECTED || D.link_up;
 	snprintf(ssid, n, "%s", D.cur_ssid);
 	pthread_mutex_unlock(&D.lock);
 	if (!up) return false;
@@ -439,6 +453,7 @@ static void *watchdog_thread(void *arg)
 /* ---------------- supervisor ---------------- */
 static void tear_down_link(void)
 {
+	pthread_mutex_lock(&D.lock); D.link_up = false; pthread_mutex_unlock(&D.lock);
 	net_down();
 	if (g_mlme.state != MLME_IDLE) mlme_disconnect();
 	pthread_mutex_lock(&D.lock);
@@ -518,7 +533,12 @@ int daemon_main(void)
 		set_state(D_CONNECTING, "");
 		pthread_mutex_lock(&D.lock); snprintf(D.cur_ssid, sizeof D.cur_ssid, "%s", ssid); pthread_mutex_unlock(&D.lock);
 		fprintf(stderr, "[daemon] connecting to \"%s\"\n", ssid);
+		pthread_mutex_lock(&D.lock);
+		D.link_up = false;
+		if (D.want_pmk_set) { extern unsigned char g_pmk_override[32]; extern int g_pmk_override_set; memcpy(g_pmk_override, D.want_pmk, 32); g_pmk_override_set = 1; D.want_pmk_set = false; }
+		pthread_mutex_unlock(&D.lock);
 		int r = mlme_connect(ssid, open ? NULL : psk);
+		if (r == 0) { pthread_mutex_lock(&D.lock); D.link_up = true; pthread_mutex_unlock(&D.lock); }
 		if (r == 0) { int nr = net_up(20, route); r = nr == 0 ? 0 : (nr == -2 ? -EPERM : -EIO); }
 		if (r) {
 			char msg[96];

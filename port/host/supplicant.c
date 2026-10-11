@@ -30,10 +30,14 @@ static struct {
 
 static u16 ki_version(void) { return S.sae ? 0 : 2; }
 
+u8 g_pmk_override[32];
+int g_pmk_override_set;
+
 void supplicant_start(const char *ssid, const char *psk)
 {
 	memset(&S, 0, sizeof S);
-	wpa_pbkdf2(psk, (const u8 *)ssid, strlen(ssid), S.pmk);
+	if (g_pmk_override_set) { memcpy(S.pmk, g_pmk_override, 32); g_pmk_override_set = 0; }	/* PMK handed over by macOS */
+	else wpa_pbkdf2(psk, (const u8 *)ssid, strlen(ssid), S.pmk);
 	S.active = true;
 }
 

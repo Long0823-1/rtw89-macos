@@ -6,12 +6,13 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <time.h>
 #include "mm.h"
 #include "mlme.h"
 #include "../../airport/rtw89_airport_abi.h"
 
 extern void daemon_request_scan(void);
-extern int daemon_connect_request(const char *ssid, const char *psk, bool open);
+extern int daemon_connect_request(const char *ssid, const char *psk, bool open, const unsigned char *pmk);
 extern void daemon_disconnect_request(void);
 extern bool daemon_link_info(char *ssid, size_t n, unsigned char bssid[6], int *chan, int *sig);
 extern unsigned long daemon_scan_count(void);
@@ -83,7 +84,8 @@ static void handle_assoc(io_service_t s)
 		if (printable) { memcpy(psk, rq.key, rq.key_len); psk[rq.key_len] = 0; }
 		bool open = rq.rsn_len == 0 && rq.key_len == 0 && rq.auth_upper == 0;
 		fprintf(stderr, "[airport] system connect request: \"%s\" auth %u/%u key_len %u rsn_len %u (%s)\n", ssid, rq.auth_lower, rq.auth_upper, rq.key_len, rq.rsn_len, printable ? "passphrase" : "no passphrase");
-		if (daemon_connect_request(ssid, psk, open) != 0)
+		const unsigned char *pmk = (!printable && rq.key_len == 32) ? rq.key : NULL;
+		if (daemon_connect_request(ssid, psk, open, pmk) != 0)
 			fprintf(stderr, "[airport] no stored passphrase for \"%s\"; connect it once with the menu bar app\n", ssid);
 	}
 	CFRelease(p);
@@ -120,6 +122,8 @@ static void *bridge_thread(void *a)
 	struct rtw_link last_link;
 	memset(&last_link, 0xff, sizeof last_link);
 	int tick = 0;
+	time_t disc_deadline = 0;
+	long last_assoc_seen = -1;
 	bool pending = false;
 	unsigned long scans_at_request = 0;
 	for (;;) {
@@ -137,7 +141,9 @@ static void *bridge_thread(void *a)
 		long as = read_num(svc, CFSTR("RTW89AssocSeq"));
 		if (as != last_assoc) { last_assoc = as; handle_assoc(svc); }
 		long ds = read_num(svc, CFSTR("RTW89DisassocSeq"));
-		if (ds != last_disassoc) { last_disassoc = ds; fprintf(stderr, "[airport] system disconnect request\n"); daemon_disconnect_request(); }
+		if (ds != last_disassoc) { last_disassoc = ds; disc_deadline = time(NULL) + 2; fprintf(stderr, "[airport] system disconnect request (deferred 2 s)\n"); }
+		if (as != last_assoc_seen) { last_assoc_seen = as; disc_deadline = 0; }	/* a connect request cancels the disconnect that precedes it */
+		if (disc_deadline && time(NULL) >= disc_deadline) { disc_deadline = 0; fprintf(stderr, "[airport] applying system disconnect\n"); daemon_disconnect_request(); }
 		if ((++tick & 3) == 0) push_link(svc, &last_link);
 		if (pending && daemon_scan_count() > scans_at_request) { pending = false; push_scan(svc); }
 	}
