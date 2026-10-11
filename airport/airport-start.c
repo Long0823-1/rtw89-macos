@@ -1,5 +1,6 @@
 // Publishes the "RTW89Airport" resource so the kext's personality matches and the driver starts. Must run as root.
 // Build: clang -o airport-start airport-start.c -framework IOKit -framework CoreFoundation
+#include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/IOKitLib.h>
 #include <stdio.h>
 int main(void)
