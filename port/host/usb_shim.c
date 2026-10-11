@@ -352,8 +352,44 @@ int kc_usb_present(u16 vid, u16 pid)
 }
 
 /* Realtek adapters enumerate first as a virtual CD (0bda:1a2b). Send the vendor command that makes them re-enumerate as Wi-Fi. */
+/* The virtual CD is an ordinary IOCDMedia to macOS, and its mass-storage driver owns the USB interface, so the supported way to
+ * send the switching SCSI eject is to let macOS do it (diskutil eject) rather than seizing the interface. */
+static int eject_virtual_cd(void)
+{
+	io_iterator_t it;
+	io_service_t m;
+	int ok = -1;
+	if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOCDMedia"), &it)) return -1;
+	while ((m = IOIteratorNext(it))) {
+		CFTypeRef vid = IORegistryEntrySearchCFProperty(m, kIOServicePlane, CFSTR("idVendor"), kCFAllocatorDefault,
+								kIORegistryIterateParents | kIORegistryIterateRecursively);
+		CFTypeRef pid = IORegistryEntrySearchCFProperty(m, kIOServicePlane, CFSTR("idProduct"), kCFAllocatorDefault,
+								kIORegistryIterateParents | kIORegistryIterateRecursively);
+		int v = 0, p = 0;
+		if (vid) { CFNumberGetValue(vid, kCFNumberIntType, &v); CFRelease(vid); }
+		if (pid) { CFNumberGetValue(pid, kCFNumberIntType, &p); CFRelease(pid); }
+		fprintf(stderr, "usb: eject: IOCDMedia vendor 0x%x product 0x%x\n", v, p);
+		if (v == 0x0bda && p == 0x1a2b) {
+			CFTypeRef bsd = IORegistryEntryCreateCFProperty(m, CFSTR("BSD Name"), kCFAllocatorDefault, 0);
+			char name[64];
+			if (bsd && CFStringGetCString(bsd, name, sizeof name, kCFStringEncodingUTF8)) {
+				char cmd[160];
+				snprintf(cmd, sizeof cmd, "/usr/sbin/diskutil eject /dev/%s >/dev/null 2>&1", name);
+				int r = system(cmd);
+				fprintf(stderr, "usb: diskutil eject %s -> %d\n", name, r);
+				if (r == 0) ok = 0;
+			}
+			if (bsd) CFRelease(bsd);
+		}
+		IOObjectRelease(m);
+	}
+	IOObjectRelease(it);
+	return ok;
+}
+
 int kc_usb_modeswitch(void)
 {
+	if (eject_virtual_cd() == 0) return 0;
 	io_iterator_t it;
 	io_service_t s;
 	int done = 0;
