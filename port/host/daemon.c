@@ -329,6 +329,29 @@ static int bring_up_adapter(void)
 	return -1;
 }
 
+struct rtw89_dev;
+extern void rtw89_fw_st_dbg_dump(struct rtw89_dev *);
+extern void rtw89_mac_dump_dmac_err_status(struct rtw89_dev *);
+static void *stall_dump_thread(void *a)
+{
+	struct rtw89_dev *d = g_mm->hw.priv;
+	rtw89_fw_st_dbg_dump(d);
+	rtw89_mac_dump_dmac_err_status(d);
+	*(volatile int *)a = 1;
+	return NULL;
+}
+/* register reads use control transfers, which may still work when the bulk pipes are wedged; bounded by a timeout */
+static void stall_dump(void)
+{
+	static volatile int done;
+	pthread_t t;
+	if (pthread_create(&t, NULL, stall_dump_thread, (void *)&done)) return;
+	pthread_detach(t);
+	for (int i = 0; i < 30 && !done; i++) usleep(100000);
+	fprintf(stderr, "[daemon] stall dump %s\n", done ? "complete" : "timed out (control pipe also wedged)");
+	fflush(stderr);
+}
+
 static void *watchdog_thread(void *arg)
 {
 	int misses = 0, stalled = 0;
@@ -348,6 +371,7 @@ static void *watchdog_thread(void *arg)
 					kc_usb_stats(st, sizeof st);
 					fprintf(stderr, "[daemon] RX stalled for 6 s (%s); restarting to reset the adapter\n", st);
 					fflush(stderr);
+					stall_dump();
 					net_down();
 					_exit(2);
 				}
