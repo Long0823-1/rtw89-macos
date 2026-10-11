@@ -53,7 +53,6 @@ public:
 	void noteRequest(unsigned type, int num, bool handled);
 
 	static IOReturn linkActionStatic(OSObject *owner, void *arg0, void *arg1, void *arg2, void *arg3);
-	IOReturn linkAction(OSObject *owner, void *arg0, void *arg1, void *arg2, void *arg3);
 	void attachClient(RTW89AirportUserClient *c);
 	void detachClient(RTW89AirportUserClient *c);
 	IOReturn rxFromUser(const void *data, UInt32 len);

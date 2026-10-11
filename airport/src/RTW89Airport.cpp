@@ -70,9 +70,11 @@ bool RTW89Airport::start(IOService *provider)
 	return true;
 }
 
-IOReturn RTW89Airport::linkAction(OSObject *owner, void *arg0, void *arg1, void *arg2, void *arg3)
+IOReturn RTW89Airport::linkActionStatic(OSObject *owner, void *arg0, void *arg1, void *arg2, void *arg3)
 {
-	applyLink((uintptr_t)arg0 != 0);
+	RTW89Airport *self = OSDynamicCast(RTW89Airport, owner);
+	if (!self) return kIOReturnBadArgument;
+	self->applyLink((uintptr_t)arg0 != 0);
 	return kIOReturnSuccess;
 }
 
@@ -121,7 +123,7 @@ IOReturn RTW89Airport::setProperties(OSObject *properties)
 			bool changed = nl.up != fLink.up;
 			fLink = nl;
 			if (changed) {
-				if (fGate) fGate->runAction(OSMemberFunctionCast(IOCommandGate::Action, this, &RTW89Airport::linkAction), (void *)(uintptr_t)nl.up);
+				if (fGate) fGate->runAction(&RTW89Airport::linkActionStatic, (void *)(uintptr_t)nl.up);
 				else applyLink(nl.up);
 			}
 		}
