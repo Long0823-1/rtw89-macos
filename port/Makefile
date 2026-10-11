@@ -2,7 +2,7 @@
 SRC := ../rtw89/src
 CFLAGS := -MMD -MP -O2 -g -w -DCONFIG_RTW89_DEBUGMSG -fno-strict-aliasing -fms-extensions -DKBUILD_MODNAME='"rtw89"' -Icompat -Icompat/uapi -I$(SRC) -Ihost
 RTW := core fw mac phy chan efuse cam ps sar regd ser util rtw8852b rtw8852b_common rtw8852b_rfk rtw8852b_rfk_table rtw8852b_table rtw8852bu usb coex mac80211
-HOST := ksupport debug_macos mm_core mlme datapath supplicant sae acpi_stub daemon main
+HOST := ksupport debug_macos mm_core mlme datapath supplicant sae acpi_stub daemon airport_bridge main
 SYSHOST := usb_shim crypto net net6 ecp256
 OBJ := $(addprefix build/rtw_,$(addsuffix .o,$(RTW))) $(addprefix build/host_,$(addsuffix .o,$(HOST))) $(addprefix build/sys_,$(addsuffix .o,$(SYSHOST)))
 

@@ -191,6 +191,14 @@ static void cmd_list(FILE *f)
 	mlme_unlock();
 }
 
+static volatile unsigned long g_scan_count;
+unsigned long daemon_scan_count(void) { return g_scan_count; }
+void daemon_request_scan(void)
+{
+	pthread_mutex_lock(&D.lock); D.scan_req = true; pthread_cond_broadcast(&D.cond); pthread_mutex_unlock(&D.lock);
+}
+extern void airport_bridge_start(void);
+
 static void handle_cmd(char *line, FILE *out)
 {
 	char *save, *cmd = strtok_r(line, " \t\r\n", &save);
@@ -420,6 +428,7 @@ int daemon_main(void)
 	if (bring_up_adapter()) { set_state(D_FAILED, "adapter bring-up failed"); sleep(5); return 1; }
 	if (mm_up()) { set_state(D_FAILED, "driver start failed"); return 2; }
 	pthread_create(&t, NULL, watchdog_thread, NULL);
+	airport_bridge_start();
 	net_init(tx_cb, g_mm->vif->addr);
 	net_on_lease_lost = on_lease_lost;
 	g_mlme.on_disconnect = on_disc;
@@ -446,6 +455,7 @@ int daemon_main(void)
 			bool was_conn = D.state == D_CONNECTED;
 			if (!was_conn) set_state(D_SCANNING, "");
 			mlme_scan(NULL);
+			g_scan_count++;
 			if (!was_conn) set_state(D_IDLE, "");
 			if (first && D.autoconnect) pick_autoconnect();
 			first = false;
@@ -458,7 +468,7 @@ int daemon_main(void)
 		snprintf(psk, sizeof psk, "%s", D.want_psk);
 		bool route = D.route_default;
 		pthread_mutex_unlock(&D.lock);
-		if (!do_connect && D.state == D_IDLE && D.autoconnect && nknown && !D.want_active) { mlme_scan(NULL); pick_autoconnect(); sleep(5); continue; }
+		if (!do_connect && D.state == D_IDLE && D.autoconnect && nknown && !D.want_active) { mlme_scan(NULL); g_scan_count++; pick_autoconnect(); sleep(5); continue; }
 		if (!do_connect) { if (D.state == D_IDLE) sleep(1); continue; }
 
 		set_state(D_CONNECTING, "");

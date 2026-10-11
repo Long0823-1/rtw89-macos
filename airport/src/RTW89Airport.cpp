@@ -13,6 +13,8 @@ bool RTW89Airport::init(OSDictionary *properties)
 	fWorkLoop = nullptr;
 	fNetIf = nullptr;
 	fPower = 1;
+	fScanN = fScanCursor = fScanSeq = 0;
+	fScanWrap = false;
 	memset(fReqCount, 0, sizeof(fReqCount));
 	memset(fReqUnsup, 0, sizeof(fReqUnsup));
 	fMac = { { 0x02, 0x00, 0x00, 0x89, 0x52, 0x01 } };	/* placeholder until the daemon supplies the real address */
@@ -66,6 +68,24 @@ bool RTW89Airport::createMediumTables(const IONetworkMedium **primary)
 	bool ok = publishMediumDictionary(dict);
 	dict->release();
 	return ok;
+}
+
+IOReturn RTW89Airport::setProperties(OSObject *properties)
+{
+	OSDictionary *d = OSDynamicCast(OSDictionary, properties);
+	if (!d) return kIOReturnBadArgument;
+	if (OSData *res = OSDynamicCast(OSData, d->getObject("RTW89ScanResults"))) {
+		UInt32 n = res->getLength() / sizeof(rtw_scan_ent);
+		if (n > RTW_AP_MAX_SCAN) n = RTW_AP_MAX_SCAN;
+		memcpy(fScan, res->getBytesNoCopy(), n * sizeof(rtw_scan_ent));
+		fScanN = n;
+		fScanCursor = 0;
+		fScanWrap = false;
+	}
+	if (OSBoolean *done = OSDynamicCast(OSBoolean, d->getObject("RTW89ScanDone"))) {
+		if (done == kOSBooleanTrue && fNetIf) fNetIf->postMessage(APPLE80211_M_SCAN_DONE);
+	}
+	return kIOReturnSuccess;
 }
 
 IOReturn RTW89Airport::selectMedium(const IONetworkMedium *medium)
@@ -263,6 +283,47 @@ SInt32 RTW89Airport::apple80211RequestImpl(unsigned int request_type, int reques
 	}
 	case APPLE80211_IOC_DISASSOCIATE:
 		return kIOReturnSuccess;
+	case APPLE80211_IOC_SCAN_REQ:
+	case APPLE80211_IOC_SCAN_REQ_MULTIPLE: {
+		if (get) return kIOReturnError;
+		if (!fPower) return 22;
+		fScanSeq++;
+		setProperty("RTW89ScanSeq", (UInt64)fScanSeq, 32);
+		return kIOReturnSuccess;
+	}
+	case APPLE80211_IOC_SCAN_RESULT: {
+		if (!get) return kIOReturnError;
+		if (fScanCursor >= fScanN) {
+			if (fScanWrap) { fScanWrap = false; fScanCursor = 0; return 5; }
+			if (fScanN == 0) return 12;
+			fScanCursor = 0;
+		}
+		const rtw_scan_ent &e = fScan[fScanCursor];
+		apple80211_scan_result *r = &fResult;
+		memset(r, 0, sizeof(*r));
+		r->version = APPLE80211_VERSION;
+		r->asr_channel.version = APPLE80211_VERSION;
+		r->asr_channel.channel = e.channel;
+		r->asr_channel.flags = (e.band5 ? APPLE80211_C_FLAG_5GHZ : APPLE80211_C_FLAG_2GHZ) | APPLE80211_C_FLAG_20MHZ | APPLE80211_C_FLAG_ACTIVE;
+		r->asr_noise = e.noise;
+		r->asr_rssi = e.rssi;
+		r->asr_snr = e.rssi - e.noise;
+		r->asr_beacon_int = e.beacon_int;
+		r->asr_cap = e.cap;
+		memcpy(r->asr_bssid, e.bssid, 6);
+		r->asr_nrates = 1;
+		r->asr_rates[0] = 6;
+		r->asr_ssid_len = e.ssid_len;
+		memcpy(r->asr_ssid, e.ssid, e.ssid_len);
+		r->asr_age = 0;
+		UInt16 il = e.ie_len > sizeof(r->asr_ie_data) ? (UInt16)sizeof(r->asr_ie_data) : e.ie_len;
+		r->asr_ie_len = il;
+		memcpy(r->asr_ie_data, e.ie, il);
+		*(apple80211_scan_result **)data = r;
+		fScanCursor++;
+		if (fScanCursor >= fScanN) fScanWrap = true;
+		return kIOReturnSuccess;
+	}
 	case APPLE80211_IOC_NOISE: {
 		if (!get) return kIOReturnError;
 		auto *nd = (apple80211_noise_data *)data;

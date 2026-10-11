@@ -7,7 +7,7 @@ K=$SDK/System/Library/Frameworks/Kernel.framework/Headers
 mkdir -p RTW89Airport.kext/Contents/MacOS build
 xcrun clang++ -arch x86_64 -mmacosx-version-min=12.0 -std=c++17 -mkernel -fapple-kext -fno-builtin -fno-exceptions -fno-rtti -fno-stack-protector -nostdlib \
   -D__IO80211_TARGET=120000 -DKERNEL -DKERNEL_PRIVATE -DDRIVER_PRIVATE -DAPPLE -DNeXT \
-  -Wno-everything -isysroot "$SDK" -include src/prefix.h -Iinclude -Iinclude/Airport -I"$K" -I"$K/libkern/c++" \
+  -Wno-everything -isysroot "$SDK" -include src/prefix.h -I. -Iinclude -Iinclude/Airport -I"$K" -I"$K/libkern/c++" \
   -c src/RTW89Airport.cpp -o build/RTW89Airport.o
 cat > build/kmod.c <<'C'
 #include <mach/kmod.h>

@@ -6,6 +6,11 @@
 #include <IOKit/IOLib.h>
 #include <IOKit/IOCommandGate.h>
 #include <libkern/c++/OSString.h>
+#include <libkern/c++/OSData.h>
+#include <libkern/c++/OSNumber.h>
+#include <libkern/c++/OSBoolean.h>
+#include <libkern/c++/OSDictionary.h>
+#include "rtw89_airport_abi.h"
 
 class RTW89AirportInterface : public IO80211Interface {
 	OSDeclareDefaultStructors(RTW89AirportInterface)
@@ -33,6 +38,7 @@ public:
 	virtual SInt32 performCountryCodeOperation(IO80211Interface *interface, IO80211CountryCodeOp op) override;
 	virtual SInt32 enableFeature(IO80211FeatureCode code, void *data) override;
 	virtual SInt32 monitorModeSetEnabled(IO80211Interface *interface, bool enabled, UInt32 dlt) override;
+	virtual IOReturn setProperties(OSObject *properties) override;
 	virtual IOReturn selectMedium(const IONetworkMedium *medium) override;
 	virtual const OSString *newVendorString() const override;
 	virtual const OSString *newModelString() const override;
@@ -42,6 +48,10 @@ public:
 	void noteRequest(unsigned type, int num, bool handled);
 
 private:
+	rtw_scan_ent fScan[RTW_AP_MAX_SCAN];
+	UInt32 fScanN, fScanCursor, fScanSeq;
+	bool fScanWrap;
+	apple80211_scan_result fResult;
 	UInt32 fReqCount[2][256];
 	UInt32 fReqUnsup[2][256];
 	UInt32 fPower;
