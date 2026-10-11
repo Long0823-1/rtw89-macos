@@ -37,6 +37,7 @@ public:
 	virtual const OSString *newModelString() const override;
 
 private:
+	UInt32 fPower;
 	IOWorkLoop *fWorkLoop;
 	IO80211Interface *fNetIf;
 	IOEthernetAddress fMac;
