@@ -9,6 +9,10 @@
 #include <string.h>
 #include <unistd.h>
 #include <time.h>
+#include <ifaddrs.h>
+#include <net/if.h>
+#include <net/if_dl.h>
+#include <netinet/in.h>
 #include "mm.h"
 #include "mlme.h"
 #include "../../airport/rtw89_airport_abi.h"
@@ -17,6 +21,7 @@ extern void daemon_request_scan(void);
 extern int daemon_connect_request(const char *ssid, const char *psk, bool open, const unsigned char *pmk);
 extern void daemon_disconnect_request(void);
 extern void daemon_set_autoconnect(int on);
+extern int daemon_fallback_connect(void);
 extern bool daemon_link_info(char *ssid, size_t n, unsigned char bssid[6], int *chan, int *sig);
 extern unsigned long daemon_scan_count(void);
 
@@ -234,6 +239,28 @@ static void handle_assoc(io_service_t s)
 }
 
 static int last_up = -1;
+static time_t g_bounce_until;
+static int have_ipv4(void)
+{
+	struct ifaddrs *ifa, *p;
+	char name[IFNAMSIZ] = "";
+	int ok = 0;
+	if (getifaddrs(&ifa)) return 0;
+	for (p = ifa; p; p = p->ifa_next)
+		if (p->ifa_addr && p->ifa_addr->sa_family == AF_LINK) {
+			struct sockaddr_dl *dl = (struct sockaddr_dl *)p->ifa_addr;
+			if (dl->sdl_alen == 6 && !memcmp(LLADDR(dl), g_mymac, 6) && strncmp(p->ifa_name, "utun", 4)) { snprintf(name, sizeof name, "%s", p->ifa_name); break; }
+		}
+	if (name[0])
+		for (p = ifa; p; p = p->ifa_next)
+			if (p->ifa_addr && p->ifa_addr->sa_family == AF_INET && !strcmp(p->ifa_name, name)) {
+				uint32_t a = ntohl(((struct sockaddr_in *)p->ifa_addr)->sin_addr.s_addr);
+				if ((a >> 16) != 0xa9fe) ok = 1;	/* not 169.254.x.x */
+			}
+	freeifaddrs(ifa);
+	return ok;
+}
+
 static void push_link(io_service_t s, struct rtw_link *last)
 {
 	struct rtw_link l;
@@ -241,7 +268,7 @@ static void push_link(io_service_t s, struct rtw_link *last)
 	unsigned char bssid[6] = { 0 };
 	int chan = 0, sig = 0;
 	memset(&l, 0, sizeof l);
-	if (daemon_link_info(ssid, sizeof ssid, bssid, &chan, &sig)) {
+	if (time(NULL) >= g_bounce_until && daemon_link_info(ssid, sizeof ssid, bssid, &chan, &sig)) {
 		l.up = 1;
 		l.ssid_len = (uint8_t)strlen(ssid);
 		memcpy(l.ssid, ssid, l.ssid_len);
@@ -266,7 +293,8 @@ static void *bridge_thread(void *a)
 	struct rtw_link last_link;
 	memset(&last_link, 0xff, sizeof last_link);
 	int tick = 0;
-	time_t disc_deadline = 0;
+	time_t disc_deadline = 0, up_since = 0, started = time(NULL), last_request_at = 0;
+	int bounces = 0, fallback_done = 0;
 	long last_assoc_seen = -1;
 	bool pending = false;
 	unsigned long scans_at_request = 0;
@@ -285,12 +313,29 @@ static void *bridge_thread(void *a)
 			fprintf(stderr, "[airport] scan requested by the system (seq %ld)\n", seq);
 		}
 		long as = read_num(svc, CFSTR("RTW89AssocSeq"));
-		if (as != last_assoc) { last_assoc = as; handle_assoc(svc); }
+		if (as != last_assoc) { last_assoc = as; last_request_at = time(NULL); handle_assoc(svc); }
 		long ds = read_num(svc, CFSTR("RTW89DisassocSeq"));
 		if (ds != last_disassoc) { last_disassoc = ds; disc_deadline = time(NULL) + 2; fprintf(stderr, "[airport] system disconnect request (deferred 2 s)\n"); }
 		if (as != last_assoc_seen) { last_assoc_seen = as; disc_deadline = 0; }	/* a connect request cancels the disconnect that precedes it */
 		if (disc_deadline && time(NULL) >= disc_deadline) { disc_deadline = 0; fprintf(stderr, "[airport] applying system disconnect\n"); daemon_disconnect_request(); }
 		if ((++tick & 3) == 0) push_link(svc, &last_link);
+		/* DHCP watchdog: a link that stays up without an IPv4 address gets bounced, like switching Wi-Fi off and on */
+		if (last_up == 1) {
+			time_t now = time(NULL);
+			if (!up_since) up_since = now;
+			if (have_ipv4()) { up_since = now; bounces = 0; }
+			else if (now - up_since > 20 && bounces < 3) {
+				bounces++;
+				fprintf(stderr, "[airport] no IPv4 address on en3 %ld s after the link came up; bouncing the link (%d)\n", (long)(now - up_since), bounces);
+				g_bounce_until = now + 2;
+				up_since = now + 2;
+			}
+		} else { up_since = 0; if (time(NULL) > g_bounce_until + 5) bounces = 0; }	/* a real disconnect starts over; our own bounce does not */
+		/* before login macOS does not auto-join: after a grace period join a known network ourselves */
+		if (last_up != 1 && !fallback_done && time(NULL) - started > 25 && time(NULL) - last_request_at > 25) {
+			fallback_done = 1;
+			daemon_fallback_connect();
+		}
 		if (g_active && tick % 20 == 0) fprintf(stderr, "[airport] data: tx %lu rx %lu\n", g_tx_n, g_rx_n);
 		if (pending && daemon_scan_count() > scans_at_request) { pending = false; push_scan(svc); }
 	}

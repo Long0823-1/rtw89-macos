@@ -241,6 +241,21 @@ int daemon_connect_request(const char *ssid, const char *psk, bool open, const u
 	return 0;
 }
 
+/* the system has not asked for anything: join the strongest known network that is in range (used before login) */
+int daemon_fallback_connect(void)
+{
+	char best[33] = "";
+	int best_sig = -1000;
+	mlme_lock();
+	for (int i = 0; i < bss_n; i++)
+		for (int k = 0; k < nknown; k++)
+			if (!strcmp(bss_tab[i].ssid, known[k].ssid) && bss_tab[i].signal > best_sig) { best_sig = bss_tab[i].signal; snprintf(best, sizeof best, "%s", known[k].ssid); }
+	mlme_unlock();
+	if (!best[0]) return -1;
+	fprintf(stderr, "[daemon] nothing asked us to connect; joining the strongest known network \"%s\" (%d dBm)\n", best, best_sig);
+	return daemon_connect_request(best, NULL, false, NULL);
+}
+
 void daemon_set_autoconnect(int on)
 {
 	pthread_mutex_lock(&D.lock); D.autoconnect = on != 0; pthread_cond_broadcast(&D.cond); pthread_mutex_unlock(&D.lock);
