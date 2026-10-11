@@ -374,9 +374,20 @@ int kc_usb_modeswitch(void)
 					(*intf)->GetPipeProperties(intf, i, &dir, &num, &tt, &mps, &in);
 					if (dir == kUSBOut && tt == kUSBBulk) outp = i;
 				}
+				/* Realtek vendor command first; if the device answers "command failed" (CSW status 1) rotate through the
+				 * standard SCSI eject and prevent/allow-removal commands on later attempts. */
+				static int attempt;
 				unsigned char cbw[31] = { 0x55, 0x53, 0x42, 0x43, 0x12, 0x34, 0x56, 0x78, 0, 0, 0, 0, 0x00, 0x00, 0x10, 0xff };
+				const unsigned char eject[] = { 0x1b, 0, 0, 0, 0x02, 0 };		/* START STOP UNIT, LoEj */
+				const unsigned char allow[] = { 0x1e, 0, 0, 0, 0x00, 0 };		/* ALLOW MEDIUM REMOVAL */
+				int variant = attempt++ % 3;
+				if (variant == 1) { memset(cbw + 15, 0, 16); cbw[14] = 6; memcpy(cbw + 15, eject, sizeof eject); }
+				if (variant == 2) { memset(cbw + 15, 0, 16); cbw[14] = 6; memcpy(cbw + 15, allow, sizeof allow); }
 				IOReturn r = (*intf)->WritePipeTO(intf, outp, cbw, sizeof cbw, 1000, 2000);
-				fprintf(stderr, "usb: mode switch command sent (0x%x)\n", r);
+				unsigned char csw[64]; UInt32 cl = sizeof csw; UInt8 inp = 0;
+				for (UInt8 i = 1; i <= n; i++) { UInt8 dir, num, tt, in; UInt16 mps; (*intf)->GetPipeProperties(intf, i, &dir, &num, &tt, &mps, &in); if (dir == kUSBIn && tt == kUSBBulk) inp = i; }
+				IOReturn r2 = inp ? (*intf)->ReadPipeTO(intf, inp, csw, &cl, 500, 1000) : -1;
+				fprintf(stderr, "usb: mode switch variant %d sent (write 0x%x, status read 0x%x, CSW status %d)\n", variant, r, r2, r2 == 0 && cl >= 13 ? csw[12] : -1);
 				done = 1;
 				(*intf)->USBInterfaceClose(intf);
 			}

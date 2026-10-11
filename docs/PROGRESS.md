@@ -123,3 +123,11 @@ Remaining: WPA3-SAE (+PMF), RX reorder buffer, kext (AirportItlwm-Tahoe based), 
 - mlme_disconnect now sends a (best effort) deauth. Debug: `echo "rxdebug on" | nc -U /var/run/rtw89d.sock`, `echo "wpa3 on"` to prefer SAE on mixed APs.
 - Seen: AP sends protected Action frames (probably SA Query) that we do not answer; harmless so far (needs SW CCMP for mgmt if it ever matters).
 - Not done: hash-to-element (only matters for APs that refuse hunting-and-pecking), WPA3-only APs untested, SA Query reply.
+
+## Milestone 13: robustness under load (field report)
+- Symptom: under heavy load the adapter disappears from USB (first error: IOKit "no device" 0xe00002c0, then bulk timeouts 0xe0004051)
+  and re-enumerates in the 0bda:1a2b "DISK" (virtual CD) state, i.e. it looks like a power loss/reset, not a firmware hang.
+- The adapter was behind a chain of USB 2.0 hubs (Realtek 4-port hub -> another hub). Suspected cause: insufficient bus power
+  through hubs at 80 MHz / high TX duty. Next step: connect to a port on the Mac itself (ideally USB 3.0) and repeat the load.
+- Recovery: the daemon now logs the CSW of the mode-switch command and rotates variants (vendor 0xff -> SCSI START STOP UNIT eject -> allow removal),
+  because after a reset the vendor command can answer "failed" while the standard eject works.
