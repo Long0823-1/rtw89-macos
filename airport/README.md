@@ -9,3 +9,8 @@ Status: milestone 0 — registers an `IO80211Interface` only; every request retu
   OpenIntelWireless/itlwm (GPL-2.0, see `LICENSE.itlwm-headers`).
 * Requires `IOSkywalkFamily.kext` (patched) and `IO80211FamilyLegacy.kext` injected by OpenCore, and OCLP's Modern Wireless root patch
   (user-space frameworks). Those Apple binaries are not in this repository.
+
+## Starting the driver
+The personality matches `IOResources` with `IOResourceMatch = RTW89Airport`, so nothing starts at boot (a boot-time start hung the
+machine with XHCI "abort commands"). Once the system is up, publish the resource to start it:
+`ioreg`-side trigger from root: set the `RTW89Airport` property on `IOResources` (done by `rtw89d` or by `tools/airport-start`).

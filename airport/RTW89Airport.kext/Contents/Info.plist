@@ -18,8 +18,6 @@
 	<string>6.0</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
-	<key>OSBundleRequired</key>
-	<string>Root</string>
 	<key>OSBundleLibraries</key>
 	<dict>
 		<key>com.apple.iokit.IO80211FamilyLegacy</key>
@@ -48,7 +46,7 @@
 			<key>IOProviderClass</key>
 			<string>IOResources</string>
 			<key>IOResourceMatch</key>
-			<string>IOKit</string>
+			<string>RTW89Airport</string>
 			<key>IOMatchCategory</key>
 			<string>RTW89Airport</string>
 		</dict>

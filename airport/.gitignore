@@ -2,3 +2,4 @@ build/
 *.o
 RTW89Airport.kext/Contents/MacOS/
 RTW89Airport.kext/Contents/_CodeSignature/
+airport/airport-start
