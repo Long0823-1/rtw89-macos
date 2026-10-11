@@ -359,18 +359,7 @@ static void *watchdog_thread(void *arg)
 	unsigned long last_rx = st_rx_frames;
 	for (int tick = 0;; tick++) {
 		usleep(500000);
-		/* the firmware halts itself on a fatal MAC error (e.g. host dispatcher payload overflow); USB has no SER interrupt, so poll for it */
-		if (D.state != D_STARTING && D.state != D_NO_ADAPTER && g_mm && g_mm->registered) {
-			u32 halt = rtw89_host_fw_halt_code(g_mm->hw.priv);
-			if (halt) {
-				fprintf(stderr, "[daemon] firmware halted (HALT_C2H=0x%x); dumping state and restarting to reset the adapter\n", halt);
-				fflush(stderr);
-				stall_dump();
-				net_down();
-				_exit(2);
-			}
-		}
-		if (tick & 3) continue;
+		if (tick & 3) continue;	/* 0.5 s tick, checks run every 2 s */
 		if (!adapter_present()) {
 			if (++misses >= 2) { fprintf(stderr, "[daemon] adapter removed, exiting\n"); fflush(stderr); _exit(1); }
 		} else misses = 0;

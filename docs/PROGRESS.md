@@ -131,3 +131,10 @@ Remaining: WPA3-SAE (+PMF), RX reorder buffer, kext (AirportItlwm-Tahoe based), 
   through hubs at 80 MHz / high TX duty. Next step: connect to a port on the Mac itself (ideally USB 3.0) and repeat the load.
 - Recovery: the daemon now logs the CSW of the mode-switch command and rotates variants (vendor 0xff -> SCSI START STOP UNIT eject -> allow removal),
   because after a reset the vendor command can answer "failed" while the standard eject works.
+
+## Milestone 14 — load-induced chip halt fixed (ZLP ordering)
+Under sustained load the firmware halted itself (HALT_C2H 0x1000, host-dispatcher payload overflow) and RX/TX stopped.
+Cause: the zero-length packet that terminates a bulk OUT transfer of an exact multiple of 512 bytes was sent *after* the
+completion callback, by which time the next queued transfer was already behind it, so the chip merged two transfers.
+Fix: queue the ZLP right behind the data under the submit lock. A 240 s saturating soak ran with no stall.
+Note: do not poll chip registers from another thread (the USB register-read buffer is not thread safe).

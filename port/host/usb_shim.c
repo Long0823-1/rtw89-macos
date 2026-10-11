@@ -89,11 +89,6 @@ static void io_cb(void *refcon, IOReturn result, void *arg0)
 	}
 	if (usbdbg < 0) usbdbg = getenv("RTW89_USBDBG") != NULL;
 	if (usbdbg) fprintf(stderr, "[usb] %s done ep%d result=0x%x len=%u\n", usb_pipein(urb->pipe) ? "IN" : "OUT", usb_pipeendpoint(urb->pipe), result, actual);
-	if (!usb_pipein(urb->pipe) && result == kIOReturnSuccess &&
-	    (urb->transfer_flags & URB_ZERO_PACKET) && actual && (actual % 512) == 0) {
-		u8 pr = pipe_of_out[usb_pipeendpoint(urb->pipe)];
-		(*g_if)->WritePipe(g_if, pr, (void *)urb->transfer_buffer, 0);
-	}
 	if (!usb_pipein(urb->pipe)) {
 		unsigned char epn = usb_pipeendpoint(urb->pipe);
 		pthread_mutex_lock(&g_submit_lock);
@@ -110,13 +105,24 @@ static struct list_head out_q[16];
 static int out_inflight[16];
 static int out_q_init;
 
+static void zlp_cb(void *refcon, IOReturn result, void *arg0) {}
+
 static int submit_now(struct urb *urb)
 {
 	u8 ep = usb_pipeendpoint(urb->pipe);
 	if (usb_pipein(urb->pipe)) __atomic_add_fetch(&usb_st_in_sub, 1, __ATOMIC_RELAXED); else __atomic_add_fetch(&usb_st_out_sub, 1, __ATOMIC_RELAXED);
 	if (usb_pipein(urb->pipe))
 		return (*g_if)->ReadPipeAsync(g_if, pipe_of_in[ep], urb->transfer_buffer, urb->transfer_buffer_length, io_cb, urb);
-	return (*g_if)->WritePipeAsyncTO(g_if, pipe_of_out[ep], urb->transfer_buffer, urb->transfer_buffer_length, 3000, 6000, io_cb, urb);
+	{
+		IOReturn r = (*g_if)->WritePipeAsyncTO(g_if, pipe_of_out[ep], urb->transfer_buffer, urb->transfer_buffer_length, 3000, 6000, io_cb, urb);
+		/* A transfer that is an exact multiple of the max packet size needs a zero-length packet to terminate it. It must be
+		 * queued right behind the data (callers hold g_submit_lock): sending it after completion lets the next queued
+		 * transfer run into this one, and the chip's host dispatcher reports a payload overflow and halts. */
+		if (r == kIOReturnSuccess && (urb->transfer_flags & URB_ZERO_PACKET) && urb->transfer_buffer_length &&
+		    (urb->transfer_buffer_length % 512) == 0)
+			(*g_if)->WritePipeAsync(g_if, pipe_of_out[ep], (void *)urb->transfer_buffer, 0, zlp_cb, NULL);
+		return r;
+	}
 }
 
 static int out_inflight_dec(unsigned char ep) { if (out_inflight[ep] > 0) out_inflight[ep]--; return out_inflight[ep]; }
