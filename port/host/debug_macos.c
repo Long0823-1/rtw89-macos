@@ -2,6 +2,7 @@
 // Replacement for rtw89's debug.c: env RTW89_DEBUG=<hex mask> enables rtw89_debug() categories.
 #include "core.h"
 #include "debug.h"
+#include "reg.h"
 
 unsigned int rtw89_debug_mask;
 
@@ -21,4 +22,10 @@ void rtw89_debug(struct rtw89_dev *rtwdev, enum rtw89_debug_mask mask, const cha
 	kc_vsnprintf_pub(buf, sizeof buf, fmt, ap);
 	va_end(ap);
 	fputs(buf, stderr);
+}
+
+/* firmware self-halt code (R_AX_HALT_C2H); nonzero means the MAC reported a fatal error */
+u32 rtw89_host_fw_halt_code(void *hw_priv)
+{
+	return rtw89_read32((struct rtw89_dev *)hw_priv, R_AX_HALT_C2H);
 }
