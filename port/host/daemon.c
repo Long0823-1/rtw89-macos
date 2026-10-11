@@ -544,14 +544,19 @@ int daemon_main(void)
 		pthread_mutex_unlock(&D.lock);
 		int r = mlme_connect(ssid, open ? NULL : psk);
 		if (r == 0) { pthread_mutex_lock(&D.lock); D.link_up = true; pthread_mutex_unlock(&D.lock); }
-		if (r == 0 && airport_data_ready() && !getenv("RTW89_UTUN")) {
+		if (r == 0 && !getenv("RTW89_UTUN")) {
 			/* macOS drives en3 (DHCP, ARP, IPv6 included); frames are exchanged with RTW89Airport.kext */
-			airport_data_active(1);
-			fprintf(stderr, "[daemon] data path: en3 (RTW89Airport.kext)\n");
-		} else if (r == 0) { int nr = net_up(20, route); r = nr == 0 ? 0 : (nr == -2 ? -EPERM : -EIO); fprintf(stderr, "[daemon] data path: utun (fallback)\n"); }
+			for (int w = 0; w < 40 && !airport_data_ready(); w++) usleep(500000);
+			if (airport_data_ready()) {
+				airport_data_active(1);
+				fprintf(stderr, "[daemon] data path: en3 (RTW89Airport.kext)\n");
+			} else {
+				r = -ENODEV;
+			}
+		} else if (r == 0) { int nr = net_up(20, route); r = nr == 0 ? 0 : (nr == -2 ? -EPERM : -EIO); fprintf(stderr, "[daemon] data path: utun (RTW89_UTUN)\n"); }
 		if (r) {
 			char msg[96];
-			snprintf(msg, sizeof msg, r == -EACCES ? "wrong password?" : r == -ENOENT ? "network not found" : r == -EIO ? "no IP address (DHCP failed)" : r == -EPERM ? "cannot create network interface (daemon needs root)" : "connection failed (%d)", r);
+			snprintf(msg, sizeof msg, r == -EACCES ? "wrong password?" : r == -ENOENT ? "network not found" : r == -EIO ? "no IP address (DHCP failed)" : r == -EPERM ? "cannot create network interface (daemon needs root)" : r == -ENODEV ? "en3 driver (RTW89Airport.kext) is not loaded" : "connection failed (%d)", r);
 			fprintf(stderr, "[daemon] connect failed: %s\n", msg);
 			tear_down_link();
 			set_state(D_FAILED, msg);
