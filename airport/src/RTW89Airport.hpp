@@ -33,6 +33,7 @@ public:
 	virtual IOReturn getHardwareAddressForInterface(IO80211Interface *netif, IOEthernetAddress *addr) override;
 	virtual UInt32 outputPacket(mbuf_t m, void *param) override;
 	virtual SInt32 apple80211Request(unsigned int request_type, int request_number, IO80211Interface *interface, void *data) override;
+	virtual SInt32 apple80211VirtualRequest(UInt request_type, int request_number, IO80211VirtualInterface *interface, void *data) override;
 	virtual SInt32 stopDMA() override;
 	virtual UInt32 hardwareOutputQueueDepth(IO80211Interface *interface) override;
 	virtual SInt32 performCountryCodeOperation(IO80211Interface *interface, IO80211CountryCodeOp op) override;
@@ -48,6 +49,7 @@ public:
 	void noteRequest(unsigned type, int num, bool handled);
 
 private:
+	UInt32 fVirtCount[2][256];
 	rtw_scan_ent fScan[RTW_AP_MAX_SCAN];
 	UInt32 fScanN, fScanCursor, fScanSeq;
 	bool fScanWrap;

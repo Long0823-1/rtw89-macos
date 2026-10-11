@@ -13,6 +13,7 @@ bool RTW89Airport::init(OSDictionary *properties)
 	fWorkLoop = nullptr;
 	fNetIf = nullptr;
 	fPower = 1;
+	memset(fVirtCount, 0, sizeof(fVirtCount));
 	fScanN = fScanCursor = fScanSeq = 0;
 	fScanWrap = false;
 	memset(fReqCount, 0, sizeof(fReqCount));
@@ -148,6 +149,38 @@ SInt32 RTW89Airport::apple80211Request(unsigned int request_type, int request_nu
 	SInt32 r = apple80211RequestImpl(request_type, request_number, interface, data);
 	noteRequest(request_type, request_number, r != (SInt32)kIOReturnUnsupported);
 	return r;
+}
+
+SInt32 RTW89Airport::apple80211VirtualRequest(UInt request_type, int request_number, IO80211VirtualInterface *interface, void *data)
+{
+	unsigned t = request_type == SIOCSA80211 ? 1 : 0;
+	if (request_number >= 0 && request_number < 256) {
+		UInt32 c = ++fVirtCount[t][request_number];
+		if (c == 1 || (c & (c - 1)) == 0) {
+			char buf[768];
+			int n = 0;
+			for (int i = 0; i < 256 && n < (int)sizeof(buf) - 24; i++)
+				for (int k = 0; k < 2; k++)
+					if (fVirtCount[k][i]) n += snprintf(buf + n, sizeof(buf) - n, "%d%c:%u ", i, k ? 's' : 'g', (unsigned)fVirtCount[k][i]);
+			setProperty("VirtRequestStats", buf);
+		}
+	}
+	if (request_type != SIOCGA80211 && request_type != SIOCSA80211) return kIOReturnError;
+	if (request_number == APPLE80211_IOC_CHANNELS_INFO) {
+		if (request_type != SIOCGA80211) return kIOReturnError;
+		auto *ci = (apple80211_channels_info *)data;
+		memset(ci, 0, sizeof(*ci));
+		ci->version = APPLE80211_VERSION;
+		static const UInt8 ch[] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 36, 40, 44, 48, 52, 56, 60, 64, 100, 104, 108, 112, 116, 120, 124, 128, 132, 136, 140, 144, 149, 153, 157, 161, 165 };
+		for (UInt8 c2 : ch) {
+			ci->chan_num[ci->num_chan_specs] = c2;
+			ci->support_40Mhz[ci->num_chan_specs] = c2 >= 36 || c2 <= 9;
+			ci->support_80Mhz[ci->num_chan_specs] = c2 >= 36;
+			ci->num_chan_specs++;
+		}
+		return kIOReturnSuccess;
+	}
+	return apple80211RequestImpl(request_type, request_number, nullptr, data);
 }
 
 SInt32 RTW89Airport::apple80211RequestImpl(unsigned int request_type, int request_number, IO80211Interface *interface, void *data)
