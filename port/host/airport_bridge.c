@@ -69,6 +69,8 @@ static void data_connect(io_service_t svc)
 	fprintf(stderr, "[airport] data path to en3 ready (queue %llu bytes)\n", (unsigned long long)size);
 }
 
+static io_service_t find_kext(void);
+
 int airport_data_ready(void) { return g_conn != 0; }
 
 /* tell macOS that the connection it asked for failed (it then shows the password prompt again) */
