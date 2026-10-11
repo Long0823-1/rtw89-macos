@@ -199,6 +199,45 @@ SInt32 RTW89Airport::apple80211RequestImpl(unsigned int request_type, int reques
 		sc->num_channels = n;
 		return kIOReturnSuccess;
 	}
+	case APPLE80211_IOC_SSID:
+	case APPLE80211_IOC_BSSID:
+	case APPLE80211_IOC_CHANNEL:
+	case APPLE80211_IOC_RSSI:
+	case APPLE80211_IOC_RATE:
+	case APPLE80211_IOC_ASSOCIATE_RESULT:
+		/* not associated yet: Apple drivers answer ENXIO-like errors for these */
+		return get ? 6 : kIOReturnUnsupported;
+	case APPLE80211_IOC_ROAM_THRESH: {
+		if (!get) return kIOReturnSuccess;
+		auto *md = (apple80211_roam_threshold_data *)data;
+		md->threshold = 100;
+		md->count = 0;
+		return kIOReturnSuccess;
+	}
+	case APPLE80211_IOC_TXPOWER: {
+		if (!get) return kIOReturnSuccess;
+		auto *td = (apple80211_txpower_data *)data;
+		td->version = APPLE80211_VERSION;
+		td->txpower_unit = APPLE80211_UNIT_DBM;
+		td->txpower = 20;
+		return kIOReturnSuccess;
+	}
+	case APPLE80211_IOC_INT_MIT: {
+		if (!get) return kIOReturnSuccess;
+		auto *id = (apple80211_intmit_data *)data;
+		id->version = APPLE80211_VERSION;
+		id->int_mit = APPLE80211_INT_MIT_AUTO;
+		return kIOReturnSuccess;
+	}
+	case APPLE80211_IOC_ASSOCIATION_STATUS: {
+		if (!get) return kIOReturnError;
+		auto *as = (apple80211_assoc_status_data *)data;
+		as->version = APPLE80211_VERSION;
+		as->status = 0;
+		return kIOReturnSuccess;
+	}
+	case APPLE80211_IOC_DISASSOCIATE:
+		return kIOReturnSuccess;
 	case APPLE80211_IOC_NOISE: {
 		if (!get) return kIOReturnError;
 		auto *nd = (apple80211_noise_data *)data;
