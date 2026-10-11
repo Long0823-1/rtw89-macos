@@ -16,6 +16,7 @@
 extern void daemon_request_scan(void);
 extern int daemon_connect_request(const char *ssid, const char *psk, bool open, const unsigned char *pmk);
 extern void daemon_disconnect_request(void);
+extern void daemon_set_autoconnect(int on);
 extern bool daemon_link_info(char *ssid, size_t n, unsigned char bssid[6], int *chan, int *sig);
 extern unsigned long daemon_scan_count(void);
 
@@ -60,6 +61,7 @@ static void data_connect(io_service_t svc)
 	mach_vm_size_t size = 0;
 	if (IOConnectMapMemory64(c, 0, mach_task_self(), &addr, &size, kIOMapAnywhere) != KERN_SUCCESS) { IOServiceClose(c); fprintf(stderr, "[airport] cannot map the TX queue\n"); return; }
 	g_conn = c;
+	daemon_set_autoconnect(0);	/* macOS (System Settings) is in charge of which network to join */
 	net_rx_hook = rx_hook;
 	pthread_t t;
 	pthread_create(&t, NULL, tx_thread, (void *)(uintptr_t)addr);

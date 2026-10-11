@@ -233,10 +233,15 @@ int daemon_connect_request(const char *ssid, const char *psk, bool open, const u
 	if (use_pmk) { memcpy(D.want_pmk, pmk, 32); D.want_pmk_set = true; } else D.want_pmk_set = false;
 	snprintf(D.want_ssid, sizeof D.want_ssid, "%s", ssid);
 	snprintf(D.want_psk, sizeof D.want_psk, "%s", use_psk);
-	D.want_open = use_open; D.want_active = true; D.autoconnect = true; D.link_lost = (D.state == D_CONNECTED);
+	D.want_open = use_open; D.want_active = true; D.autoconnect = !airport_data_ready(); D.link_lost = (D.state == D_CONNECTED);	/* with the en3 driver macOS decides what to join */
 	pthread_cond_broadcast(&D.cond);
 	pthread_mutex_unlock(&D.lock);
 	return 0;
+}
+
+void daemon_set_autoconnect(int on)
+{
+	pthread_mutex_lock(&D.lock); D.autoconnect = on != 0; pthread_cond_broadcast(&D.cond); pthread_mutex_unlock(&D.lock);
 }
 
 void daemon_disconnect_request(void)
