@@ -506,7 +506,7 @@ int mm_hw_scan(const u8 *ssid, int ssid_len)
 	}
 	rq->req.n_channels = k;
 	if (ssid_len) { memcpy(ssids[0].ssid, ssid, ssid_len); ssids[0].ssid_len = ssid_len; rq->req.ssids = ssids; rq->req.n_ssids = 1; }
-	else { rq->req.ssids = ssids; rq->req.n_ssids = 0; }
+	else { ssids[0].ssid_len = 0; rq->req.ssids = ssids; rq->req.n_ssids = 1; }	/* wildcard probe request: active scan, APs answer at once instead of waiting for a beacon */
 	rq->req.wiphy = wiphy;
 	memset(rq->req.rates, 0xff, sizeof(rq->req.rates));
 	reinit_completion(&m->scan_done);
