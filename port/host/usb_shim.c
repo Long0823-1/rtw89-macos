@@ -368,6 +368,8 @@ int kc_usb_modeswitch(void)
 		(*di)->GetDeviceVendor(di, &v); (*di)->GetDeviceProduct(di, &p);
 		if (v != 0x0bda || p != 0x1a2b) { (*di)->Release(di); continue; }
 		if ((*di)->USBDeviceOpenSeize(di)) { (*di)->Release(di); continue; }
+		int reconf = 0;
+	again:;
 		IOUSBFindInterfaceRequest rq = { kIOUSBFindInterfaceDontCare, kIOUSBFindInterfaceDontCare, kIOUSBFindInterfaceDontCare, kIOUSBFindInterfaceDontCare };
 		io_iterator_t ii; (*di)->CreateInterfaceIterator(di, &rq, &ii);
 		io_service_t is = IOIteratorNext(ii);
@@ -382,6 +384,22 @@ int kc_usb_modeswitch(void)
 			for (int w = 0; intf && orr == 0xe00002c5 && w < 50; w++) { usleep(200000); orr = (*intf)->USBInterfaceOpenSeize(intf); }
 			if (orr) {
 				fprintf(stderr, "usb: mode switch cannot open the interface (0x%x)\n", orr);
+				if (orr == 0xe00002c5 && !reconf) {
+					/* the kernel mass-storage driver will not let go: re-applying the configuration (we own the device) makes
+					 * macOS rebuild the interface nodes, and we race it for the new one */
+					reconf = 1;
+					UInt8 cv = 0;
+					(*di)->GetConfiguration(di, &cv);
+					IOReturn rc = (*di)->SetConfiguration(di, cv ? cv : 1);
+					fprintf(stderr, "usb: re-applied configuration %d (0x%x)\n", cv ? cv : 1, rc);
+					if (!rc) { (*intf)->Release(intf); usleep(100000); goto again; }
+				} else if (orr == 0xe00002c0 && reconf && reconf < 40) {
+					/* the interface node we grabbed was torn down by the reconfiguration; look up the new one */
+					reconf++;
+					(*intf)->Release(intf);
+					usleep(100000);
+					goto again;
+				}
 			}
 			if (intf && orr == 0) {
 				UInt8 n, outp = 0;
