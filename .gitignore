@@ -1,0 +1,26 @@
+# vendor driver archive (66 MB, not ours)
+tplink/
+# firmware blobs: fetched by scripts/fetch-firmware.sh
+rtw89/*.bin
+rtw89/list.json
+# build products
+port/build/
+port/rtw89d
+port/compat/real/
+*.o
+*.d
+.DS_Store
+# built app bundle binary (source is in app/Sources)
+app/RTW89WiFi.app/Contents/MacOS/
+app/RTW89WiFi.app/Contents/_CodeSignature/
+# prototype tools: keep sources only, never binaries or data pulled from a real adapter (contains its MAC address)
+tools/*
+!tools/*.c
+!tools/*.h
+!tools/README.md
+tools/m3.c
+# local secrets and logs
+*.psk
+.rtw89_psk
+*.log
+PLAN.md
