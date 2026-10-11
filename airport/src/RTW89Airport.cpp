@@ -37,6 +37,12 @@ bool RTW89Airport::start(IOService *provider)
 {
 	LOG("start\n");
 	if (!super::start(provider)) { LOG("super::start failed\n"); return false; }
+	const IONetworkMedium *primaryMedium = nullptr;
+	if (!createMediumTables(&primaryMedium) || !setCurrentMedium(primaryMedium) || !setSelectedMedium(primaryMedium)) {
+		LOG("medium setup failed\n");
+		super::stop(provider);
+		return false;
+	}
 	if (!attachInterface((IONetworkInterface **)&fNetIf, true)) {
 		LOG("attachInterface failed\n");
 		super::stop(provider);
@@ -47,6 +53,25 @@ bool RTW89Airport::start(IOService *provider)
 	if (fNetIf) fNetIf->registerService();
 	LOG("interface attached\n");
 	return true;
+}
+
+bool RTW89Airport::createMediumTables(const IONetworkMedium **primary)
+{
+	OSDictionary *dict = OSDictionary::withCapacity(1);
+	if (!dict) return false;
+	IONetworkMedium *medium = IONetworkMedium::medium(0x80, 11000000);	/* same IEEE 802.11 medium type AirportItlwm publishes */
+	IONetworkMedium::addMedium(dict, medium);
+	medium->release();
+	if (primary) *primary = medium;
+	bool ok = publishMediumDictionary(dict);
+	dict->release();
+	return ok;
+}
+
+IOReturn RTW89Airport::selectMedium(const IONetworkMedium *medium)
+{
+	setSelectedMedium(medium);
+	return kIOReturnSuccess;
 }
 
 void RTW89Airport::stop(IOService *provider)

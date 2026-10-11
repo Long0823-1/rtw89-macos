@@ -33,10 +33,12 @@ public:
 	virtual SInt32 performCountryCodeOperation(IO80211Interface *interface, IO80211CountryCodeOp op) override;
 	virtual SInt32 enableFeature(IO80211FeatureCode code, void *data) override;
 	virtual SInt32 monitorModeSetEnabled(IO80211Interface *interface, bool enabled, UInt32 dlt) override;
+	virtual IOReturn selectMedium(const IONetworkMedium *medium) override;
 	virtual const OSString *newVendorString() const override;
 	virtual const OSString *newModelString() const override;
 
 	SInt32 apple80211RequestImpl(unsigned int request_type, int request_number, IO80211Interface *interface, void *data);
+	bool createMediumTables(const IONetworkMedium **primary);
 	void noteRequest(unsigned type, int num, bool handled);
 
 private:
