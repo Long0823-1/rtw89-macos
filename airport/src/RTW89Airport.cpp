@@ -13,6 +13,8 @@ bool RTW89Airport::init(OSDictionary *properties)
 	fWorkLoop = nullptr;
 	fNetIf = nullptr;
 	fPower = 1;
+	memset(fReqCount, 0, sizeof(fReqCount));
+	memset(fReqUnsup, 0, sizeof(fReqUnsup));
 	fMac = { { 0x02, 0x00, 0x00, 0x89, 0x52, 0x01 } };	/* placeholder until the daemon supplies the real address */
 	return true;
 }
@@ -79,7 +81,31 @@ UInt32 RTW89Airport::outputPacket(mbuf_t m, void *param)
 	return kIOReturnOutputDropped;
 }
 
+void RTW89Airport::noteRequest(unsigned type, int num, bool handled)
+{
+	unsigned t = type == SIOCSA80211 ? 1 : 0;
+	if (num < 0 || num > 255) return;
+	UInt32 c = ++fReqCount[t][num];
+	if (!handled) fReqUnsup[t][num]++;
+	if (c == 1 || (c & (c - 1)) == 0) {	/* first sight and every power of two: refresh the registry summary */
+		char buf[1536];
+		int n = 0;
+		for (int i = 0; i < 256 && n < (int)sizeof(buf) - 32; i++)
+			for (int k = 0; k < 2; k++)
+				if (fReqCount[k][i])
+					n += snprintf(buf + n, sizeof(buf) - n, "%d%c:%u%s ", i, k ? 's' : 'g', (unsigned)fReqCount[k][i], fReqUnsup[k][i] ? "!" : "");
+		setProperty("RequestStats", buf);
+	}
+}
+
 SInt32 RTW89Airport::apple80211Request(unsigned int request_type, int request_number, IO80211Interface *interface, void *data)
+{
+	SInt32 r = apple80211RequestImpl(request_type, request_number, interface, data);
+	noteRequest(request_type, request_number, r != (SInt32)kIOReturnUnsupported);
+	return r;
+}
+
+SInt32 RTW89Airport::apple80211RequestImpl(unsigned int request_type, int request_number, IO80211Interface *interface, void *data)
 {
 	const bool get = request_type == SIOCGA80211;
 	if (request_type != SIOCGA80211 && request_type != SIOCSA80211) return kIOReturnError;

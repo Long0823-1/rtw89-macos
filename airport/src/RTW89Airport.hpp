@@ -36,7 +36,12 @@ public:
 	virtual const OSString *newVendorString() const override;
 	virtual const OSString *newModelString() const override;
 
+	SInt32 apple80211RequestImpl(unsigned int request_type, int request_number, IO80211Interface *interface, void *data);
+	void noteRequest(unsigned type, int num, bool handled);
+
 private:
+	UInt32 fReqCount[2][256];
+	UInt32 fReqUnsup[2][256];
 	UInt32 fPower;
 	IOWorkLoop *fWorkLoop;
 	IO80211Interface *fNetIf;
