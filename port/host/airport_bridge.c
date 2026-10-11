@@ -22,6 +22,7 @@ extern int daemon_connect_request(const char *ssid, const char *psk, bool open, 
 extern void daemon_disconnect_request(void);
 extern void daemon_set_autoconnect(int on);
 extern int daemon_fallback_connect(void);
+extern int daemon_has_last(void);
 extern bool daemon_link_info(char *ssid, size_t n, unsigned char bssid[6], int *chan, int *sig);
 extern unsigned long daemon_scan_count(void);
 
@@ -295,6 +296,7 @@ static void *bridge_thread(void *a)
 	int tick = 0;
 	time_t disc_deadline = 0, up_since = 0, started = time(NULL), last_request_at = 0;
 	int bounces = 0, fallback_done = 0;
+	time_t last_fallback_try = 0;
 	long last_assoc_seen = -1;
 	bool pending = false;
 	unsigned long scans_at_request = 0;
@@ -332,9 +334,14 @@ static void *bridge_thread(void *a)
 			}
 		} else { up_since = 0; if (time(NULL) > g_bounce_until + 5) bounces = 0; }	/* a real disconnect starts over; our own bounce does not */
 		/* before login macOS does not auto-join: after a grace period join a known network ourselves */
-		if (last_up != 1 && !fallback_done && time(NULL) - started > 25 && time(NULL) - last_request_at > 25) {
-			fallback_done = 1;
-			daemon_fallback_connect();
+		/* with a remembered network (e.g. after a restart of the daemon) the grace period is short; retry until a scan has found it */
+		{
+			time_t now = time(NULL);
+			int grace = daemon_has_last() ? 4 : 25;
+			if (last_up != 1 && !fallback_done && now - started > grace && now - last_request_at > grace && now - last_fallback_try >= 3) {
+				last_fallback_try = now;
+				if (daemon_fallback_connect() == 0) fallback_done = 1;
+			}
 		}
 		if (g_active && tick % 20 == 0) fprintf(stderr, "[airport] data: tx %lu rx %lu\n", g_tx_n, g_rx_n);
 		if (pending && daemon_scan_count() > scans_at_request) { pending = false; push_scan(svc); }

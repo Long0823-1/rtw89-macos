@@ -242,14 +242,32 @@ int daemon_connect_request(const char *ssid, const char *psk, bool open, const u
 }
 
 /* the system has not asked for anything: join the strongest known network that is in range (used before login) */
+static const char *last_path(void) { return "/var/db/rtw89d/last.conf"; }
+static void last_save(const char *ssid) { FILE *f = fopen(last_path(), "w"); if (f) { chmod(last_path(), 0600); fputs(ssid, f); fclose(f); } }
+static bool last_load(char *ssid, size_t n)
+{
+	FILE *f = fopen(last_path(), "r");
+	if (!f) return false;
+	bool ok = fgets(ssid, (int)n, f) != NULL;
+	fclose(f);
+	ssid[strcspn(ssid, "\r\n")] = 0;
+	return ok && ssid[0];
+}
+int daemon_has_last(void) { char b[33]; return last_load(b, sizeof b); }
+
 int daemon_fallback_connect(void)
 {
 	char best[33] = "";
 	int best_sig = -1000;
+	char last[33] = "";
+	bool have_last = last_load(last, sizeof last);
 	mlme_lock();
 	for (int i = 0; i < bss_n; i++)
 		for (int k = 0; k < nknown; k++)
-			if (!strcmp(bss_tab[i].ssid, known[k].ssid) && bss_tab[i].signal > best_sig) { best_sig = bss_tab[i].signal; snprintf(best, sizeof best, "%s", known[k].ssid); }
+			if (!strcmp(bss_tab[i].ssid, known[k].ssid) && (bss_tab[i].signal > best_sig || (have_last && !strcmp(known[k].ssid, last)))) {
+				if (best[0] && have_last && !strcmp(best, last) && strcmp(known[k].ssid, last)) continue;	/* keep the network we were on */
+				best_sig = bss_tab[i].signal; snprintf(best, sizeof best, "%s", known[k].ssid);
+			}
 	mlme_unlock();
 	if (!best[0]) return -1;
 	fprintf(stderr, "[daemon] nothing asked us to connect; joining the strongest known network \"%s\" (%d dBm)\n", best, best_sig);
@@ -600,6 +618,7 @@ int daemon_main(void)
 		D.state = D_CONNECTED; D.err[0] = 0; D.connected_at = time(NULL);
 		pthread_mutex_unlock(&D.lock);
 		fprintf(stderr, "[daemon] connected to \"%s\"\n", ssid);
+		last_save(ssid);
 	}
 	return 0;
 }
