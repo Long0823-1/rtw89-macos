@@ -73,11 +73,15 @@ static void urb_done(struct urb *urb, IOReturn result, u32 actual)
 
 static int usbdbg = -1;
 static void out_drain(unsigned char ep);
+extern unsigned long usb_st_in_sub, usb_st_in_done, usb_st_out_sub, usb_st_out_done, usb_st_err;
 static int out_inflight_dec(unsigned char ep);
+extern unsigned long usb_st_in_sub, usb_st_in_done, usb_st_out_sub, usb_st_out_done, usb_st_err;
 static void io_cb(void *refcon, IOReturn result, void *arg0)
 {
 	struct urb *urb = refcon;
 	u32 actual = (u32)(uintptr_t)arg0;
+	if (usb_pipein(urb->pipe)) __atomic_add_fetch(&usb_st_in_done, 1, __ATOMIC_RELAXED); else __atomic_add_fetch(&usb_st_out_done, 1, __ATOMIC_RELAXED);
+	if (result != kIOReturnSuccess) __atomic_add_fetch(&usb_st_err, 1, __ATOMIC_RELAXED);
 	if (result != kIOReturnSuccess && result != kIOReturnAborted) {
 		static int logged2;
 		if (logged2++ < 20) fprintf(stderr, "[usb] %s ep%d completion error 0x%x (len %u)\n", usb_pipein(urb->pipe) ? "IN" : "OUT", usb_pipeendpoint(urb->pipe), result, actual);
@@ -109,6 +113,7 @@ static int out_q_init;
 static int submit_now(struct urb *urb)
 {
 	u8 ep = usb_pipeendpoint(urb->pipe);
+	if (usb_pipein(urb->pipe)) __atomic_add_fetch(&usb_st_in_sub, 1, __ATOMIC_RELAXED); else __atomic_add_fetch(&usb_st_out_sub, 1, __ATOMIC_RELAXED);
 	if (usb_pipein(urb->pipe))
 		return (*g_if)->ReadPipeAsync(g_if, pipe_of_in[ep], urb->transfer_buffer, urb->transfer_buffer_length, io_cb, urb);
 	return (*g_if)->WritePipeAsyncTO(g_if, pipe_of_out[ep], urb->transfer_buffer, urb->transfer_buffer_length, 3000, 6000, io_cb, urb);
@@ -397,4 +402,31 @@ int kc_usb_modeswitch(void)
 	}
 	IOObjectRelease(it);
 	return done ? 0 : -1;
+}
+
+/* ---- diagnostics ---- */
+unsigned long usb_st_in_sub, usb_st_in_done, usb_st_out_sub, usb_st_out_done, usb_st_err;
+
+void kc_usb_stats(char *buf, size_t n)
+{
+	int qlen[16] = {0}, tot = 0;
+	pthread_mutex_lock(&g_submit_lock);
+	for (int e = 0; e < 16; e++) { struct list_head *p; if (out_q_init) list_for_each(p, &out_q[e]) qlen[e]++; tot += qlen[e]; }
+	int infl = 0; for (int e = 0; e < 16; e++) infl += out_inflight[e];
+	pthread_mutex_unlock(&g_submit_lock);
+	snprintf(buf, n, "IN submitted %lu completed %lu (outstanding %ld) | OUT submitted %lu completed %lu | OUT inflight %d queued %d | errors %lu",
+		 usb_st_in_sub, usb_st_in_done, (long)(usb_st_in_sub - usb_st_in_done), usb_st_out_sub, usb_st_out_done, infl, tot, usb_st_err);
+}
+
+/* Number of OUT transfers that are queued or in flight on the data endpoints (for TX back-pressure). */
+int kc_usb_tx_backlog(void)
+{
+	int tot = 0;
+	pthread_mutex_lock(&g_submit_lock);
+	for (int e = 0; e < 16; e++) {
+		tot += out_inflight[e];
+		if (out_q_init) { struct list_head *p; list_for_each(p, &out_q[e]) tot++; }
+	}
+	pthread_mutex_unlock(&g_submit_lock);
+	return tot;
 }

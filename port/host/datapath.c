@@ -51,8 +51,14 @@ void dp_remove_keys(void)
 }
 
 /* Build and transmit one data frame from <sa> to <da> (STA -> AP direction, ToDS). */
+extern int kc_usb_tx_backlog(void);
+
 int dp_tx_frame(const u8 *da, u16 ethertype, const u8 *payload, size_t len, bool control_port)
 {
+	/* back-pressure: do not let the chip's TX path be flooded (the kernel path throttles through txq/ieee80211_stop_queues) */
+	if (!control_port) {
+		for (int i = 0; i < 400 && kc_usb_tx_backlog() > 96; i++) usleep(500);
+	}
 	struct mm *m = g_mm;
 	struct ieee80211_hw *hw = &m->hw;
 	bool prot = !control_port && dp_ptk;

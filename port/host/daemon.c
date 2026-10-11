@@ -260,6 +260,11 @@ static void handle_cmd(char *line, FILE *out)
 		char *a = strtok_r(NULL, " \t\r\n", &save);
 		g_prefer_sae = a && !strcmp(a, "on");
 		fprintf(out, "ok (prefer SAE: %d)\n", g_prefer_sae);
+	} else if (!strcmp(cmd, "usbstat")) {
+		char res[300];
+		extern void kc_usb_stats(char *, size_t);
+		kc_usb_stats(res, sizeof res);
+		fprintf(out, "%s\n", res);
 	} else if (!strcmp(cmd, "quit")) {
 		fprintf(out, "ok\n"); fflush(out);
 		net_down();
@@ -326,12 +331,29 @@ static int bring_up_adapter(void)
 
 static void *watchdog_thread(void *arg)
 {
-	int misses = 0;
+	int misses = 0, stalled = 0;
+	unsigned long last_rx = st_rx_frames;
 	for (;;) {
 		sleep(2);
 		if (!adapter_present()) {
 			if (++misses >= 2) { fprintf(stderr, "[daemon] adapter removed, exiting\n"); fflush(stderr); _exit(1); }
 		} else misses = 0;
+		/* a healthy link receives beacons constantly; no frames at all for 6 s means the RX path is wedged */
+		if (D.state == D_CONNECTED || D.state == D_IDLE || D.state == D_SCANNING) {
+			unsigned long now = st_rx_frames;
+			if (now == last_rx) {
+				if (++stalled >= 3) {
+					char st[300];
+					extern void kc_usb_stats(char *, size_t);
+					kc_usb_stats(st, sizeof st);
+					fprintf(stderr, "[daemon] RX stalled for 6 s (%s); restarting to reset the adapter\n", st);
+					fflush(stderr);
+					net_down();
+					_exit(2);
+				}
+			} else stalled = 0;
+			last_rx = now;
+		} else { stalled = 0; last_rx = st_rx_frames; }
 	}
 	return NULL;
 }
