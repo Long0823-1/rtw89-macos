@@ -60,6 +60,8 @@ public:
 	void applyLink(bool up);
 
 private:
+	UInt32 fTxCalls, fTxQueued, fRxOk, fRxFail;
+	void publishDataStats();
 	RTW89AirportUserClient *fClient;
 	bool fDataActive;
 	IOCommandGate *fGate;

@@ -16,6 +16,7 @@ bool RTW89Airport::init(OSDictionary *properties)
 	fPower = 1;
 	fClient = nullptr;
 	fDataActive = false;
+	fTxCalls = fTxQueued = fRxOk = fRxFail = 0;
 	fGate = nullptr;
 	memset(&fLink, 0, sizeof(fLink));
 	fAssocSeq = fDisassocSeq = 0;
@@ -166,13 +167,22 @@ IOReturn RTW89Airport::disable(IONetworkInterface *netif) { LOG("disable\n"); re
 IOReturn RTW89Airport::getHardwareAddress(IOEthernetAddress *addr) { *addr = fMac; return kIOReturnSuccess; }
 IOReturn RTW89Airport::getHardwareAddressForInterface(IO80211Interface *netif, IOEthernetAddress *addr) { *addr = fMac; return kIOReturnSuccess; }
 
+void RTW89Airport::publishDataStats()
+{
+	char b[160];
+	snprintf(b, sizeof b, "txcalls=%u txqueued=%u rxok=%u rxfail=%u client=%d active=%d up=%d", (unsigned)fTxCalls, (unsigned)fTxQueued, (unsigned)fRxOk, (unsigned)fRxFail, fClient != nullptr, (int)fDataActive, (int)fLink.up);
+	setProperty("RTW89DataStats", b);
+}
+
 UInt32 RTW89Airport::outputPacket(mbuf_t m, void *param)
 {
+	UInt32 c = ++fTxCalls;
+	if (c < 16 || (c & (c - 1)) == 0) publishDataStats();
 	/* hand the Ethernet frame to rtw89d through the shared queue (only while it is connected and the data path is on) */
 	if (fClient && fDataActive && fLink.up && m) {
 		UInt8 buf[2048];
 		UInt32 len = (UInt32)mbuf_pkthdr_len(m);
-		if (len >= 14 && len <= sizeof(buf) && mbuf_copydata(m, 0, len, buf) == 0) fClient->enqueueTx(buf, len);
+		if (len >= 14 && len <= sizeof(buf) && mbuf_copydata(m, 0, len, buf) == 0 && fClient->enqueueTx(buf, len)) fTxQueued++;
 	}
 	freePacket(m);
 	return kIOReturnOutputSuccess;
@@ -199,13 +209,15 @@ bool RTW89Airport::useAppleRSNSupplicant(IO80211Interface *interface) { return f
 
 IOReturn RTW89Airport::rxFromUser(const void *data, UInt32 len)
 {
-	if (!fNetIf || !fLink.up) return kIOReturnNotReady;
+	if (!fNetIf || !fLink.up) { fRxFail++; return kIOReturnNotReady; }
 	mbuf_t m = allocatePacket(len);
-	if (!m) return kIOReturnNoMemory;
-	if (mbuf_copyback(m, 0, len, data, MBUF_DONTWAIT) != 0) { freePacket(m); return kIOReturnNoMemory; }
+	if (!m) { fRxFail++; return kIOReturnNoMemory; }
+	if (mbuf_copyback(m, 0, len, data, MBUF_DONTWAIT) != 0) { fRxFail++; freePacket(m); return kIOReturnNoMemory; }
 	mbuf_pkthdr_setlen(m, len);
 	mbuf_setlen(m, len);
 	fNetIf->inputPacket(m, len, 0, nullptr);
+	UInt32 c = ++fRxOk;
+	if (c < 16 || (c & (c - 1)) == 0) publishDataStats();
 	return kIOReturnSuccess;
 }
 

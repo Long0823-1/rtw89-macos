@@ -24,10 +24,12 @@ extern int net_tx_raw(const unsigned char *eth, size_t len);
 
 static io_connect_t g_conn;
 static volatile int g_active;
+static unsigned long g_tx_n, g_rx_n;
 
 static int rx_hook(const unsigned char *eth, size_t len)
 {
 	if (!g_active || !g_conn) return 0;
+	g_rx_n++;
 	IOConnectCallStructMethod(g_conn, 0, eth, len, NULL, NULL);
 	return 1;
 }
@@ -41,7 +43,7 @@ static void *tx_thread(void *arg)
 	for (;;) {
 		while (IODataQueueDataAvailable(q)) {
 			uint32_t sz = sizeof buf;
-			if (IODataQueueDequeue(q, buf, &sz) == KERN_SUCCESS && sz >= 14) net_tx_raw(buf, sz);
+			if (IODataQueueDequeue(q, buf, &sz) == KERN_SUCCESS && sz >= 14) { g_tx_n++; if (g_tx_n <= 8) fprintf(stderr, "[airport] tx from en3: %u bytes, ethertype %02x%02x\n", sz, buf[12], buf[13]); net_tx_raw(buf, sz); }
 			else break;
 		}
 		IODataQueueWaitForAvailableData(q, port);
@@ -214,6 +216,7 @@ static void *bridge_thread(void *a)
 		if (as != last_assoc_seen) { last_assoc_seen = as; disc_deadline = 0; }	/* a connect request cancels the disconnect that precedes it */
 		if (disc_deadline && time(NULL) >= disc_deadline) { disc_deadline = 0; fprintf(stderr, "[airport] applying system disconnect\n"); daemon_disconnect_request(); }
 		if ((++tick & 3) == 0) push_link(svc, &last_link);
+		if (g_active && tick % 20 == 0) fprintf(stderr, "[airport] data: tx %lu rx %lu\n", g_tx_n, g_rx_n);
 		if (pending && daemon_scan_count() > scans_at_request) { pending = false; push_scan(svc); }
 	}
 	return NULL;
