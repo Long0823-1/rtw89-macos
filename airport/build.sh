@@ -9,6 +9,10 @@ xcrun clang++ -arch x86_64 -mmacosx-version-min=12.0 -std=c++17 -mkernel -fapple
   -D__IO80211_TARGET=120000 -DKERNEL -DKERNEL_PRIVATE -DDRIVER_PRIVATE -DAPPLE -DNeXT \
   -Wno-everything -isysroot "$SDK" -include src/prefix.h -I. -Iinclude -Iinclude/Airport -I"$K" -I"$K/libkern/c++" \
   -c src/RTW89Airport.cpp -o build/RTW89Airport.o
+xcrun clang++ -arch x86_64 -mmacosx-version-min=12.0 -std=c++17 -mkernel -fapple-kext -fno-builtin -fno-exceptions -fno-rtti -fno-stack-protector -nostdlib \
+  -DKERNEL -DKERNEL_PRIVATE -DDRIVER_PRIVATE -DAPPLE -DNeXT -D__IO80211_TARGET=120000 \
+  -Wno-everything -isysroot "$SDK" -include src/prefix.h -I. -Iinclude -Iinclude/Airport -I"$K" -I"$K/libkern/c++" \
+  -c src/RTW89AirportUserClient.cpp -o build/RTW89AirportUserClient.o
 cat > build/kmod.c <<'C'
 #include <mach/kmod.h>
 extern kern_return_t _start(kmod_info_t *, void *);
@@ -20,6 +24,6 @@ __private_extern__ int _kext_apple_cc = __APPLE_CC__;
 C
 xcrun clang -arch x86_64 -mmacosx-version-min=12.0 -mkernel -fno-builtin -nostdlib -DKERNEL -isysroot "$SDK" -I"$K" -c build/kmod.c -o build/kmod.o
 xcrun clang++ -arch x86_64 -mmacosx-version-min=12.0 -nostdlib -Xlinker -kext -Xlinker -no_data_const -isysroot "$SDK" \
-  build/RTW89Airport.o build/kmod.o -L"$SDK/usr/lib" -lkmod -lkmodc++ -o RTW89Airport.kext/Contents/MacOS/RTW89Airport
+  build/RTW89Airport.o build/RTW89AirportUserClient.o build/kmod.o -L"$SDK/usr/lib" -lkmod -lkmodc++ -o RTW89Airport.kext/Contents/MacOS/RTW89Airport
 codesign -s - --force RTW89Airport.kext 2>/dev/null || true
 echo built

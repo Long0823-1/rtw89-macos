@@ -53,6 +53,14 @@ static pthread_cond_t dhcp_cond = PTHREAD_COND_INITIALIZER;
 
 void net_init(net_tx_fn tx, const unsigned char mac[6]) { g_tx = tx; memcpy(g_mac, mac, 6); }
 
+/* frames that macOS sends through en3 (RTW89Airport.kext) go straight out; received frames can be diverted to en3 */
+int (*net_rx_hook)(const unsigned char *eth, size_t len);
+int net_tx_raw(const unsigned char *eth, size_t len)
+{
+	if (!g_tx || len < 14) return -1;
+	return g_tx(eth, (unsigned short)((eth[12] << 8) | eth[13]), eth + 14, len - 14);
+}
+
 static uint16_t csum(const void *data, size_t len, uint32_t init)
 {
 	const uint8_t *p = data;
@@ -461,6 +469,7 @@ void net_down(void)
 void net_rx_eth(const unsigned char *eth, size_t len)
 {
 	if (len < 14) return;
+	if (net_rx_hook && net_rx_hook(eth, len)) return;
 	uint16_t et = (eth[12] << 8) | eth[13];
 	const unsigned char *p = eth + 14;
 	size_t pl = len - 14;

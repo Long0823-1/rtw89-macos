@@ -12,6 +12,8 @@
 #include <libkern/c++/OSDictionary.h>
 #include "rtw89_airport_abi.h"
 
+class RTW89AirportUserClient;
+
 class RTW89AirportInterface : public IO80211Interface {
 	OSDeclareDefaultStructors(RTW89AirportInterface)
 };
@@ -40,6 +42,8 @@ public:
 	virtual SInt32 enableFeature(IO80211FeatureCode code, void *data) override;
 	virtual SInt32 monitorModeSetEnabled(IO80211Interface *interface, bool enabled, UInt32 dlt) override;
 	virtual IOReturn setProperties(OSObject *properties) override;
+	virtual IOReturn newUserClient(task_t owningTask, void *securityID, UInt32 type, IOUserClient **handler) override;
+	virtual bool useAppleRSNSupplicant(IO80211Interface *interface) override;
 	virtual IOReturn selectMedium(const IONetworkMedium *medium) override;
 	virtual const OSString *newVendorString() const override;
 	virtual const OSString *newModelString() const override;
@@ -50,9 +54,15 @@ public:
 
 	static IOReturn linkActionStatic(OSObject *owner, void *arg0, void *arg1, void *arg2, void *arg3);
 	IOReturn linkAction(OSObject *owner, void *arg0, void *arg1, void *arg2, void *arg3);
+	void attachClient(RTW89AirportUserClient *c);
+	void detachClient(RTW89AirportUserClient *c);
+	IOReturn rxFromUser(const void *data, UInt32 len);
+	void setDataActive(bool on);
 	void applyLink(bool up);
 
 private:
+	RTW89AirportUserClient *fClient;
+	bool fDataActive;
 	IOCommandGate *fGate;
 	rtw_link fLink;
 	UInt32 fAssocSeq, fDisassocSeq;

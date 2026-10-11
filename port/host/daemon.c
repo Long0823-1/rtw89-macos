@@ -201,6 +201,9 @@ void daemon_request_scan(void)
 	pthread_mutex_lock(&D.lock); D.scan_req = true; pthread_cond_broadcast(&D.cond); pthread_mutex_unlock(&D.lock);
 }
 extern void airport_bridge_start(void);
+extern int airport_data_ready(void);
+extern void airport_data_active(int on);
+extern void airport_publish_start(const unsigned char mac[6]);
 
 /* ---- entry points used by the kext bridge (System Settings Wi-Fi) ---- */
 /* returns 0 on accepted, -1 when the passphrase is missing and the network is not known */
@@ -454,6 +457,7 @@ static void *watchdog_thread(void *arg)
 static void tear_down_link(void)
 {
 	pthread_mutex_lock(&D.lock); D.link_up = false; pthread_mutex_unlock(&D.lock);
+	airport_data_active(0);
 	net_down();
 	if (g_mlme.state != MLME_IDLE) mlme_disconnect();
 	pthread_mutex_lock(&D.lock);
@@ -489,6 +493,7 @@ int daemon_main(void)
 	pthread_create(&t, NULL, watchdog_thread, NULL);
 	airport_bridge_start();
 	net_init(tx_cb, g_mm->vif->addr);
+	airport_publish_start(g_mm->vif->addr);
 	net_on_lease_lost = on_lease_lost;
 	g_mlme.on_disconnect = on_disc;
 	set_state(D_IDLE, "");
@@ -539,7 +544,11 @@ int daemon_main(void)
 		pthread_mutex_unlock(&D.lock);
 		int r = mlme_connect(ssid, open ? NULL : psk);
 		if (r == 0) { pthread_mutex_lock(&D.lock); D.link_up = true; pthread_mutex_unlock(&D.lock); }
-		if (r == 0) { int nr = net_up(20, route); r = nr == 0 ? 0 : (nr == -2 ? -EPERM : -EIO); }
+		if (r == 0 && airport_data_ready() && !getenv("RTW89_UTUN")) {
+			/* macOS drives en3 (DHCP, ARP, IPv6 included); frames are exchanged with RTW89Airport.kext */
+			airport_data_active(1);
+			fprintf(stderr, "[daemon] data path: en3 (RTW89Airport.kext)\n");
+		} else if (r == 0) { int nr = net_up(20, route); r = nr == 0 ? 0 : (nr == -2 ? -EPERM : -EIO); fprintf(stderr, "[daemon] data path: utun (fallback)\n"); }
 		if (r) {
 			char msg[96];
 			snprintf(msg, sizeof msg, r == -EACCES ? "wrong password?" : r == -ENOENT ? "network not found" : r == -EIO ? "no IP address (DHCP failed)" : r == -EPERM ? "cannot create network interface (daemon needs root)" : "connection failed (%d)", r);

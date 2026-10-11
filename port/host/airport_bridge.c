@@ -2,6 +2,8 @@
 // Bridge between rtw89d and RTW89Airport.kext (the System Settings Wi-Fi interface), over IORegistry properties.
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/IOKitLib.h>
+#include <IOKit/IODataQueueClient.h>
+#include <mach/mach.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <string.h>
@@ -16,6 +18,72 @@ extern int daemon_connect_request(const char *ssid, const char *psk, bool open, 
 extern void daemon_disconnect_request(void);
 extern bool daemon_link_info(char *ssid, size_t n, unsigned char bssid[6], int *chan, int *sig);
 extern unsigned long daemon_scan_count(void);
+
+extern int (*net_rx_hook)(const unsigned char *eth, size_t len);
+extern int net_tx_raw(const unsigned char *eth, size_t len);
+
+static io_connect_t g_conn;
+static volatile int g_active;
+
+static int rx_hook(const unsigned char *eth, size_t len)
+{
+	if (!g_active || !g_conn) return 0;
+	IOConnectCallStructMethod(g_conn, 0, eth, len, NULL, NULL);
+	return 1;
+}
+
+static void *tx_thread(void *arg)
+{
+	IODataQueueMemory *q = arg;
+	mach_port_t port = IODataQueueAllocateNotificationPort();
+	unsigned char buf[2048];
+	if (IOConnectSetNotificationPort(g_conn, 0, port, 0) != KERN_SUCCESS) { fprintf(stderr, "[airport] cannot set the notification port\n"); return NULL; }
+	for (;;) {
+		while (IODataQueueDataAvailable(q)) {
+			uint32_t sz = sizeof buf;
+			if (IODataQueueDequeue(q, buf, &sz) == KERN_SUCCESS && sz >= 14) net_tx_raw(buf, sz);
+			else break;
+		}
+		IODataQueueWaitForAvailableData(q, port);
+	}
+	return NULL;
+}
+
+static void data_connect(io_service_t svc)
+{
+	if (g_conn) return;
+	io_connect_t c;
+	if (IOServiceOpen(svc, mach_task_self(), 0, &c) != KERN_SUCCESS) { fprintf(stderr, "[airport] IOServiceOpen failed (data path stays on utun)\n"); return; }
+	mach_vm_address_t addr = 0;
+	mach_vm_size_t size = 0;
+	if (IOConnectMapMemory64(c, 0, mach_task_self(), &addr, &size, kIOMapAnywhere) != KERN_SUCCESS) { IOServiceClose(c); fprintf(stderr, "[airport] cannot map the TX queue\n"); return; }
+	g_conn = c;
+	net_rx_hook = rx_hook;
+	pthread_t t;
+	pthread_create(&t, NULL, tx_thread, (void *)(uintptr_t)addr);
+	pthread_detach(t);
+	fprintf(stderr, "[airport] data path to en3 ready (queue %llu bytes)\n", (unsigned long long)size);
+}
+
+int airport_data_ready(void) { return g_conn != 0; }
+
+void airport_data_active(int on)
+{
+	g_active = on;
+	if (g_conn) { uint64_t v = on; IOConnectCallScalarMethod(g_conn, 1, &v, 1, NULL, NULL); }
+}
+
+/* publish the adapter MAC with the start trigger: the kext takes its interface address from it */
+void airport_publish_start(const unsigned char mac[6])
+{
+	io_registry_entry_t r = IORegistryEntryFromPath(kIOMainPortDefault, "IOService:/IOResources");
+	if (!r) return;
+	CFDataRef d = CFDataCreate(kCFAllocatorDefault, mac, 6);
+	IOReturn k = IORegistryEntrySetCFProperty(r, CFSTR("RTW89Airport"), d);
+	CFRelease(d);
+	IOObjectRelease(r);
+	fprintf(stderr, "[airport] published the start trigger with the adapter MAC (0x%x)\n", k);
+}
 
 static io_service_t find_kext(void)
 {
@@ -128,7 +196,8 @@ static void *bridge_thread(void *a)
 	unsigned long scans_at_request = 0;
 	for (;;) {
 		usleep(250000);
-		if (!svc) { svc = find_kext(); if (!svc) continue; last = read_seq(svc); last_assoc = read_num(svc, CFSTR("RTW89AssocSeq")); last_disassoc = read_num(svc, CFSTR("RTW89DisassocSeq")); memset(&last_link, 0xff, sizeof last_link); fprintf(stderr, "[airport] kext found\n"); continue; }
+		if (!svc) { svc = find_kext(); if (!svc) continue; last = read_seq(svc); last_assoc = read_num(svc, CFSTR("RTW89AssocSeq")); last_disassoc = read_num(svc, CFSTR("RTW89DisassocSeq")); memset(&last_link, 0xff, sizeof last_link); fprintf(stderr, "[airport] kext found\n"); g_active = 0; data_connect(svc); continue; }
+		if (!g_conn) data_connect(svc);
 		long seq = read_seq(svc);
 		if (IORegistryEntryGetRegistryEntryID(svc, &(uint64_t){0}) != KERN_SUCCESS) { IOObjectRelease(svc); svc = 0; continue; }	/* kext went away */
 		if (seq != last) {

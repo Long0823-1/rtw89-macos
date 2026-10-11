@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 #include "RTW89Airport.hpp"
+#include "RTW89AirportUserClient.hpp"
 
 #define super IO80211Controller
 OSDefineMetaClassAndStructors(RTW89Airport, IO80211Controller)
@@ -13,6 +14,8 @@ bool RTW89Airport::init(OSDictionary *properties)
 	fWorkLoop = nullptr;
 	fNetIf = nullptr;
 	fPower = 1;
+	fClient = nullptr;
+	fDataActive = false;
 	fGate = nullptr;
 	memset(&fLink, 0, sizeof(fLink));
 	fAssocSeq = fDisassocSeq = 0;
@@ -43,6 +46,9 @@ IOWorkLoop *RTW89Airport::getWorkLoop() const { return fWorkLoop; }
 bool RTW89Airport::start(IOService *provider)
 {
 	LOG("start\n");
+	if (OSData *mac = OSDynamicCast(OSData, provider->getProperty("RTW89Airport"))) {
+		if (mac->getLength() == 6) memcpy(&fMac, mac->getBytesNoCopy(), 6);	/* the daemon publishes the adapter MAC with the start trigger */
+	}
 	if (!super::start(provider)) { LOG("super::start failed\n"); return false; }
 	const IONetworkMedium *primaryMedium = nullptr;
 	if (!createMediumTables(&primaryMedium) || !setCurrentMedium(primaryMedium) || !setSelectedMedium(primaryMedium)) {
@@ -160,8 +166,45 @@ IOReturn RTW89Airport::getHardwareAddressForInterface(IO80211Interface *netif, I
 
 UInt32 RTW89Airport::outputPacket(mbuf_t m, void *param)
 {
+	/* hand the Ethernet frame to rtw89d through the shared queue (only while it is connected and the data path is on) */
+	if (fClient && fDataActive && fLink.up && m) {
+		UInt8 buf[2048];
+		UInt32 len = (UInt32)mbuf_pkthdr_len(m);
+		if (len >= 14 && len <= sizeof(buf) && mbuf_copydata(m, 0, len, buf) == 0) fClient->enqueueTx(buf, len);
+	}
 	freePacket(m);
-	return kIOReturnOutputDropped;
+	return kIOReturnOutputSuccess;
+}
+
+IOReturn RTW89Airport::newUserClient(task_t owningTask, void *securityID, UInt32 type, IOUserClient **handler)
+{
+	RTW89AirportUserClient *uc = OSTypeAlloc(RTW89AirportUserClient);
+	if (!uc) return kIOReturnNoMemory;
+	if (!uc->initWithTask(owningTask, securityID, type) || !uc->attach(this) || !uc->start(this)) {
+		uc->detach(this);
+		uc->release();
+		return kIOReturnError;
+	}
+	*handler = uc;
+	return kIOReturnSuccess;
+}
+
+void RTW89Airport::attachClient(RTW89AirportUserClient *c) { fClient = c; }
+void RTW89Airport::detachClient(RTW89AirportUserClient *c) { if (fClient == c) { fClient = nullptr; fDataActive = false; } }
+void RTW89Airport::setDataActive(bool on) { fDataActive = on; setProperty("RTW89DataActive", on ? kOSBooleanTrue : kOSBooleanFalse); }
+
+bool RTW89Airport::useAppleRSNSupplicant(IO80211Interface *interface) { return false; }	/* rtw89d runs the 4-way handshake itself */
+
+IOReturn RTW89Airport::rxFromUser(const void *data, UInt32 len)
+{
+	if (!fNetIf || !fLink.up) return kIOReturnNotReady;
+	mbuf_t m = allocatePacket(len);
+	if (!m) return kIOReturnNoMemory;
+	if (mbuf_copyback(m, 0, len, data, MBUF_DONTWAIT) != 0) { freePacket(m); return kIOReturnNoMemory; }
+	mbuf_pkthdr_setlen(m, len);
+	mbuf_setlen(m, len);
+	fNetIf->inputPacket(m, len, 0, nullptr);
+	return kIOReturnSuccess;
 }
 
 void RTW89Airport::noteRequest(unsigned type, int num, bool handled)

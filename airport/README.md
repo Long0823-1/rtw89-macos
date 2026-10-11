@@ -14,3 +14,10 @@ Status: milestone 0 — registers an `IO80211Interface` only; every request retu
 The personality matches `IOResources` with `IOResourceMatch = RTW89Airport`, so nothing starts at boot (a boot-time start hung the
 machine with XHCI "abort commands"). Once the system is up, publish the resource to start it:
 `ioreg`-side trigger from root: set the `RTW89Airport` property on `IOResources` (done by `rtw89d` or by `tools/airport-start`).
+
+## Data path (stage B)
+`RTW89AirportUserClient` gives rtw89d a shared TX queue (frames macOS sends through en3) and an `rx` external method (frames
+received from the air). With the data path active macOS runs DHCP/ARP/IPv6 on en3 itself; rtw89d then skips its own utun/DHCP.
+If the kext or the user client is missing, rtw89d falls back to the old utun path (`RTW89_UTUN=1` forces it).
+rtw89d publishes the `RTW89Airport` resource with the adapter MAC when the adapter is ready, which also starts the kext
+(no manual `airport-start` needed; the interface takes that MAC).
