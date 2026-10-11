@@ -16,7 +16,7 @@ bool RTW89Airport::init(OSDictionary *properties)
 	fPower = 1;
 	fClient = nullptr;
 	fDataActive = false;
-	fTxCalls = fTxQueued = fRxOk = fRxFail = 0;
+	fTxCalls = fTxQueued = fRxOk = fRxFail = fBpfCalls = fBpfLastDlt = fBpfQueued = 0;
 	fGate = nullptr;
 	memset(&fLink, 0, sizeof(fLink));
 	fAssocSeq = fDisassocSeq = 0;
@@ -170,22 +170,37 @@ IOReturn RTW89Airport::getHardwareAddressForInterface(IO80211Interface *netif, I
 void RTW89Airport::publishDataStats()
 {
 	char b[160];
-	snprintf(b, sizeof b, "txcalls=%u txqueued=%u rxok=%u rxfail=%u client=%d active=%d up=%d", (unsigned)fTxCalls, (unsigned)fTxQueued, (unsigned)fRxOk, (unsigned)fRxFail, fClient != nullptr, (int)fDataActive, (int)fLink.up);
+	snprintf(b, sizeof b, "txcalls=%u txqueued=%u bpfcalls=%u bpfdlt=%u bpfqueued=%u rxok=%u rxfail=%u client=%d active=%d up=%d", (unsigned)fTxCalls, (unsigned)fTxQueued, (unsigned)fBpfCalls, (unsigned)fBpfLastDlt, (unsigned)fBpfQueued, (unsigned)fRxOk, (unsigned)fRxFail, fClient != nullptr, (int)fDataActive, (int)fLink.up);
 	setProperty("RTW89DataStats", b);
+}
+
+bool RTW89Airport::queueEthernet(mbuf_t m)
+{
+	if (!(fClient && fDataActive && fLink.up && m)) return false;
+	UInt8 buf[2048];
+	UInt32 len = (UInt32)mbuf_pkthdr_len(m);
+	if (len < 14 || len > sizeof(buf) || mbuf_copydata(m, 0, len, buf) != 0) return false;
+	return fClient->enqueueTx(buf, len);
 }
 
 UInt32 RTW89Airport::outputPacket(mbuf_t m, void *param)
 {
 	UInt32 c = ++fTxCalls;
+	if (queueEthernet(m)) fTxQueued++;
 	if (c < 16 || (c & (c - 1)) == 0) publishDataStats();
-	/* hand the Ethernet frame to rtw89d through the shared queue (only while it is connected and the data path is on) */
-	if (fClient && fDataActive && fLink.up && m) {
-		UInt8 buf[2048];
-		UInt32 len = (UInt32)mbuf_pkthdr_len(m);
-		if (len >= 14 && len <= sizeof(buf) && mbuf_copydata(m, 0, len, buf) == 0 && fClient->enqueueTx(buf, len)) fTxQueued++;
-	}
 	freePacket(m);
 	return kIOReturnOutputSuccess;
+}
+
+/* the BPF write path (what the DHCP client uses): DLT_EN10MB frames are complete Ethernet frames */
+int RTW89Airport::bpfOutputPacket(OSObject *obj, UInt dlt, mbuf_t m)
+{
+	UInt32 c = ++fBpfCalls;
+	fBpfLastDlt = dlt;
+	if (dlt == 1 /* DLT_EN10MB */ && queueEthernet(m)) fBpfQueued++;
+	if (c < 16 || (c & (c - 1)) == 0) publishDataStats();
+	if (m) mbuf_freem(m);
+	return 0;
 }
 
 IOReturn RTW89Airport::newUserClient(task_t owningTask, void *securityID, UInt32 type, IOUserClient **handler)

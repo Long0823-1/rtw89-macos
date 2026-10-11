@@ -35,6 +35,7 @@ public:
 	virtual IOReturn getHardwareAddressForInterface(IO80211Interface *netif, IOEthernetAddress *addr) override;
 	virtual UInt32 outputPacket(mbuf_t m, void *param) override;
 	virtual SInt32 apple80211Request(unsigned int request_type, int request_number, IO80211Interface *interface, void *data) override;
+	virtual int bpfOutputPacket(OSObject *obj, UInt dlt, mbuf_t m) override;
 	virtual SInt32 apple80211VirtualRequest(UInt request_type, int request_number, IO80211VirtualInterface *interface, void *data) override;
 	virtual SInt32 stopDMA() override;
 	virtual UInt32 hardwareOutputQueueDepth(IO80211Interface *interface) override;
@@ -60,7 +61,8 @@ public:
 	void applyLink(bool up);
 
 private:
-	UInt32 fTxCalls, fTxQueued, fRxOk, fRxFail;
+	UInt32 fTxCalls, fTxQueued, fRxOk, fRxFail, fBpfCalls, fBpfLastDlt, fBpfQueued;
+	bool queueEthernet(mbuf_t m);
 	void publishDataStats();
 	RTW89AirportUserClient *fClient;
 	bool fDataActive;
