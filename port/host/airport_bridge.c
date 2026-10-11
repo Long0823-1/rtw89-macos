@@ -105,14 +105,23 @@ static long read_seq(io_service_t s)
 	return v;
 }
 
-static void push_scan(io_service_t s)
+/* Scan results are merged over time: weak access points come and go between scans, which made the list flicker. */
+#define CACHE_MAX 128
+#define CACHE_TTL 45
+static struct { struct rtw_scan_ent e; time_t seen; } g_cache[CACHE_MAX];
+static int g_cache_n;
+static time_t g_cache_scan_at;
+
+static void cache_update(void)
 {
-	static struct rtw_scan_ent ent[RTW_AP_MAX_SCAN];
-	int n = 0;
+	time_t now = time(NULL);
 	mlme_lock();
-	for (int i = 0; i < bss_n && n < RTW_AP_MAX_SCAN; i++) {
+	for (int i = 0; i < bss_n; i++) {
 		const struct bss_entry *b = &bss_tab[i];
-		struct rtw_scan_ent *e = &ent[n++];
+		int k;
+		for (k = 0; k < g_cache_n; k++) if (!memcmp(g_cache[k].e.bssid, b->bssid, 6)) break;
+		if (k == g_cache_n) { if (g_cache_n >= CACHE_MAX) continue; g_cache_n++; }
+		struct rtw_scan_ent *e = &g_cache[k].e;
 		memset(e, 0, sizeof(*e));
 		memcpy(e->bssid, b->bssid, 6);
 		e->ssid_len = b->ssid_len > 32 ? 32 : b->ssid_len;
@@ -125,13 +134,39 @@ static void push_scan(io_service_t s)
 		e->beacon_int = b->beacon_int;
 		const u8 *rsn = ie_find(b->ies, b->ie_len, 48);
 		if (rsn && 2u + rsn[1] <= RTW_AP_MAX_IE) { e->ie_len = 2 + rsn[1]; memcpy(e->ie, rsn, e->ie_len); }
+		g_cache[k].seen = now;
 	}
 	mlme_unlock();
+	int w = 0;
+	for (int k = 0; k < g_cache_n; k++) if (now - g_cache[k].seen <= CACHE_TTL) g_cache[w++] = g_cache[k];
+	g_cache_n = w;
+	g_cache_scan_at = now;
+}
+
+static void push_cache(io_service_t s)
+{
+	static struct rtw_scan_ent ent[RTW_AP_MAX_SCAN];
+	int n = 0;
+	/* strongest first, at most RTW_AP_MAX_SCAN */
+	bool used[CACHE_MAX] = { false };
+	while (n < RTW_AP_MAX_SCAN && n < g_cache_n) {
+		int best = -1;
+		for (int k = 0; k < g_cache_n; k++) if (!used[k] && (best < 0 || g_cache[k].e.rssi > g_cache[best].e.rssi)) best = k;
+		if (best < 0) break;
+		used[best] = true;
+		ent[n++] = g_cache[best].e;
+	}
 	CFDataRef d = CFDataCreate(kCFAllocatorDefault, (const UInt8 *)ent, n * sizeof(ent[0]));
 	IOReturn r = IORegistryEntrySetCFProperty(s, CFSTR("RTW89ScanResults"), d);
 	CFRelease(d);
 	IOReturn r2 = IORegistryEntrySetCFProperty(s, CFSTR("RTW89ScanDone"), kCFBooleanTrue);
 	fprintf(stderr, "[airport] pushed %d scan results (0x%x, 0x%x)\n", n, r, r2);
+}
+
+static void push_scan(io_service_t s)
+{
+	cache_update();
+	push_cache(s);
 }
 
 static long read_num(io_service_t s, CFStringRef key)
@@ -207,7 +242,8 @@ static void *bridge_thread(void *a)
 		if (seq != last) {
 			last = seq;
 			scans_at_request = daemon_scan_count();
-			pending = true;
+			if (g_cache_n > 0 && time(NULL) - g_cache_scan_at <= 20) { push_cache(svc); pending = false; }	/* answer at once from the merged cache */
+			else pending = true;
 			daemon_request_scan();
 			fprintf(stderr, "[airport] scan requested by the system (seq %ld)\n", seq);
 		}
