@@ -143,3 +143,6 @@ Note: do not poll chip registers from another thread (the USB register-read buff
 The virtual-CD interface is often held by IOUSBMassStorageDriver (seize fails with 0xe00002c5, or the device vanishes while re-enumerating).
 Daemon: retry seize, re-apply the configuration to rebuild the interface nodes. Cleaner fix: `kext/RTW89Hold.kext` (codeless, loaded
 through OpenCore) keeps Apple's driver from binding to 0bda:1a2b. Do not re-enumerate/reset the device mid-switch.
+
+Result: with the executable RTW89Hold.kext loaded (OpenCore Kernel > Add, ExecutablePath Contents/MacOS/RTW89Hold) the virtual-CD
+interface is held by RTW89Hold instead of IOUSBMassStorageDriver, and the daemon's mode switch succeeds after replugging.

@@ -16,3 +16,10 @@ that attaches to the interface (a codeless personality using Apple classes did n
    (there should be no `IOUSBMassStorageInterfaceNub` under the DISK device).
 
 To undo: remove the entry and the kext, reboot.
+
+## Matching notes (hard-won)
+* A USB *interface* personality must also carry `bConfigurationValue` and `bInterfaceNumber` next to `idVendor`/`idProduct`;
+  without them the USB family never offers the personality to the interface and Apple's driver wins by default.
+* Codeless personalities that borrow Apple classes (`IOService`, `AppleUSBHostMergeProperties`) did not work for interfaces.
+* `RTW89HoldMarker` is a diagnostic personality that sets `RTW89HoldLoaded = Yes` on the device; it proves OpenCore injected the kext.
+* Debug tip: boot-args `io=0x21f kextlog=0xffff`, then read the kernel log with `log show --last boot --predicate 'process == "kernel"'`.
