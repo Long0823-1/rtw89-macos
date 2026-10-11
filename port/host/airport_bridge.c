@@ -25,6 +25,7 @@ extern int net_tx_raw(const unsigned char *eth, size_t len);
 
 static io_connect_t g_conn;
 static volatile int g_active;
+static unsigned char g_mymac[6];
 static unsigned long g_tx_n, g_rx_n;
 
 static int g_trace;
@@ -44,6 +45,7 @@ static void trace_frame(const char *dir, const unsigned char *eth, size_t len)
 static int rx_hook(const unsigned char *eth, size_t len)
 {
 	if (!g_active || !g_conn) return 0;
+	if (len >= 14 && !memcmp(eth + 6, g_mymac, 6)) return 1;	/* the AP reflects our own group frames back; a station must drop them */
 	trace_frame("rx", eth, len);
 	g_rx_n++;
 	IOConnectCallStructMethod(g_conn, 0, eth, len, NULL, NULL);
@@ -112,6 +114,7 @@ void airport_data_active(int on)
 /* publish the adapter MAC with the start trigger: the kext takes its interface address from it */
 void airport_publish_start(const unsigned char mac[6])
 {
+	memcpy(g_mymac, mac, 6);
 	io_registry_entry_t r = IORegistryEntryFromPath(kIOMainPortDefault, "IOService:/IOResources");
 	if (!r) return;
 	CFDataRef d = CFDataCreate(kCFAllocatorDefault, mac, 6);
