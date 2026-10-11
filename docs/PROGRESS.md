@@ -146,3 +146,16 @@ through OpenCore) keeps Apple's driver from binding to 0bda:1a2b. Do not re-enum
 
 Result: with the executable RTW89Hold.kext loaded (OpenCore Kernel > Add, ExecutablePath Contents/MacOS/RTW89Hold) the virtual-CD
 interface is held by RTW89Hold instead of IOUSBMassStorageDriver, and the daemon's mode switch succeeds after replugging.
+
+## Milestone 16 — System Settings > Wi-Fi integration (en3)
+The adapter now appears in macOS System Settings > Wi-Fi and carries the traffic on **en3**; macOS runs DHCP/ARP/IPv6 itself.
+Pieces (see `kext/` and `airport/`):
+* OCLP "Modern Wireless" root patch (user-space frameworks) + OpenCore-injected `IOSkywalkFamily` (patched) and `IO80211FamilyLegacy` (macOS 12) kexts.
+* `RTW89Hold.kext`: keeps IOUSBMassStorageDriver off the virtual CD so the mode switch is reliable (interface personality needs
+  bConfigurationValue + bInterfaceNumber).
+* `RTW89Airport.kext`: IO80211Controller subclass; scan/associate/link state via IORegistry properties, data via a shared TX queue
+  (IOSharedDataQueue) and an `rx` external method. rtw89d (`airport_bridge.c`) is the user-space side.
+Lessons: airportd drops scan results unless CHANNELS_INFO etc. are answered; ASSOCIATE_RESULT success is 1; macOS hands the WPA2 PMK (32 bytes)
+in the associate request; failures must be reported (ASSOC_DONE) so macOS prompts again; IFF_RUNNING must be raised explicitly and enable() must
+call the superclass; scans need wildcard probe requests (active) or APs flicker; results are merged over 45 s.
+Open items: WPA3-SAE from System Settings (needs the passphrase, macOS only provides a PMK for WPA2), sleep/wake, throughput on en3, adapter stall under load.
