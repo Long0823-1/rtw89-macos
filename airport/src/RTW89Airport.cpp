@@ -81,6 +81,7 @@ IOReturn RTW89Airport::linkActionStatic(OSObject *owner, void *arg0, void *arg1,
 
 void RTW89Airport::applyLink(bool up)
 {
+	setProperty("RTW89LastApply", up ? "up" : "down");
 	if (!fNetIf) return;
 	if (up) {
 		setLinkStatus(kIONetworkLinkValid | kIONetworkLinkActive, getCurrentMedium(), 866000000);
@@ -166,13 +167,13 @@ IOReturn RTW89Airport::enable(IONetworkInterface *netif)
 {
 	LOG("enable\n");
 	super::enable(netif);
+	if (fLink.up) applyLink(true);	/* the link may have come up before macOS enabled the interface */
 	return kIOReturnSuccess;
 }
 IOReturn RTW89Airport::disable(IONetworkInterface *netif)
 {
 	LOG("disable\n");
 	super::disable(netif);
-	setLinkStatus(kIONetworkLinkValid);
 	return kIOReturnSuccess;
 }
 
