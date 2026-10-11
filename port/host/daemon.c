@@ -201,6 +201,7 @@ void daemon_request_scan(void)
 	pthread_mutex_lock(&D.lock); D.scan_req = true; pthread_cond_broadcast(&D.cond); pthread_mutex_unlock(&D.lock);
 }
 extern void airport_bridge_start(void);
+extern void airport_assoc_failed(void);
 extern int airport_data_ready(void);
 extern void airport_data_active(int on);
 extern void airport_publish_start(const unsigned char mac[6]);
@@ -563,6 +564,7 @@ int daemon_main(void)
 			char msg[96];
 			snprintf(msg, sizeof msg, r == -EACCES ? "wrong password?" : r == -ENOENT ? "network not found" : r == -EIO ? "no IP address (DHCP failed)" : r == -EPERM ? "cannot create network interface (daemon needs root)" : r == -ENODEV ? "en3 driver (RTW89Airport.kext) is not loaded" : "connection failed (%d)", r);
 			fprintf(stderr, "[daemon] connect failed: %s\n", msg);
+			if (airport_data_ready()) { airport_assoc_failed(); pthread_mutex_lock(&D.lock); D.want_active = false; pthread_mutex_unlock(&D.lock); }	/* macOS decides whether to retry */
 			tear_down_link();
 			set_state(D_FAILED, msg);
 			pthread_mutex_lock(&D.lock);

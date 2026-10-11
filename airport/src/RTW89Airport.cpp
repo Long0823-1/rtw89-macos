@@ -16,6 +16,7 @@ bool RTW89Airport::init(OSDictionary *properties)
 	fPower = 1;
 	fClient = nullptr;
 	fDataActive = false;
+	fAssocFailSeq = 0;
 	fTxCalls = fTxQueued = fRxOk = fRxFail = fBpfCalls = fBpfLastDlt = fBpfQueued = 0;
 	fGate = nullptr;
 	memset(&fLink, 0, sizeof(fLink));
@@ -129,6 +130,15 @@ IOReturn RTW89Airport::setProperties(OSObject *properties)
 				if (fGate) fGate->runAction(&RTW89Airport::linkActionStatic, (void *)(uintptr_t)nl.up);
 				else applyLink(nl.up);
 			}
+		}
+	}
+	if (OSNumber *fl = OSDynamicCast(OSNumber, d->getObject("RTW89AssocFail"))) {
+		UInt32 seq = fl->unsigned32BitValue();
+		if (seq != fAssocFailSeq) {
+			fAssocFailSeq = seq;
+			if (fLink.up) { fLink.up = 0; if (fGate) fGate->runAction(&RTW89Airport::linkActionStatic, (void *)(uintptr_t)0); }
+			if (fNetIf) fNetIf->postMessage(APPLE80211_M_ASSOC_DONE);
+			setProperty("RTW89AssocFailSeq", (UInt64)seq, 32);
 		}
 	}
 	if (OSBoolean *done = OSDynamicCast(OSBoolean, d->getObject("RTW89ScanDone"))) {
@@ -452,9 +462,10 @@ SInt32 RTW89Airport::apple80211RequestImpl(unsigned int request_type, int reques
 	}
 	case APPLE80211_IOC_ASSOCIATE_RESULT: {
 		if (!get) return kIOReturnError;
+		if (!fLink.up) return kIOReturnError;	/* failed (or not associated): macOS then asks the user again */
 		auto *ar = (apple80211_assoc_result_data *)data;
 		ar->version = APPLE80211_VERSION;
-		ar->result = fLink.up ? 0 : 1;
+		ar->result = APPLE80211_RESULT_SUCCESS;
 		return kIOReturnSuccess;
 	}
 	case APPLE80211_IOC_ASSOCIATE: {

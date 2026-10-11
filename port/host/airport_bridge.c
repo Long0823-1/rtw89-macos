@@ -71,6 +71,20 @@ static void data_connect(io_service_t svc)
 
 int airport_data_ready(void) { return g_conn != 0; }
 
+/* tell macOS that the connection it asked for failed (it then shows the password prompt again) */
+void airport_assoc_failed(void)
+{
+	static int seq;
+	io_service_t svc = find_kext();
+	if (!svc) return;
+	int v = ++seq;
+	CFNumberRef n = CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &v);
+	IOReturn r = IORegistryEntrySetCFProperty(svc, CFSTR("RTW89AssocFail"), n);
+	CFRelease(n);
+	IOObjectRelease(svc);
+	fprintf(stderr, "[airport] reported the failed connection to macOS (0x%x)\n", r);
+}
+
 void airport_data_active(int on)
 {
 	g_active = on;
