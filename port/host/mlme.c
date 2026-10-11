@@ -3,7 +3,7 @@
 // station/channel-context bookkeeping towards the driver (the part Linux's mac80211 mlme.c normally does).
 #include "mm.h"
 #include "mlme.h"
-extern unsigned long st_rx_frames, st_rx_data, st_rx_bytes, st_rx_undecrypted;
+extern unsigned long st_rx_frames, st_rx_data, st_rx_bytes, st_rx_undecrypted, st_rx_undec_group, st_rx_undec_uni;
 static void handle_action(struct sk_buff *skb);
 void mlme_ba_start_tx(int tid);
 void mlme_ba_reset(void);
@@ -672,7 +672,11 @@ static void handle_data(struct sk_buff *skb)
 		amsdu = qc & IEEE80211_QOS_CTL_A_MSDU_PRESENT;
 	}
 	if (ieee80211_has_protected(fc)) {
-		if (!(st->flag & RX_FLAG_DECRYPTED)) { st_rx_undecrypted++; return; }
+		if (!(st->flag & RX_FLAG_DECRYPTED)) {
+			st_rx_undecrypted++;
+			if (is_multicast_ether_addr(h->addr1)) st_rx_undec_group++; else st_rx_undec_uni++;
+			return;
+		}
 		if (!(st->flag & RX_FLAG_IV_STRIPPED)) {
 			if (plen < 8 + 8) return;
 			payload += 8; plen -= 8;
@@ -1089,7 +1093,7 @@ void mlme_rx_rate_str(char *buf, size_t n)
 }
 
 /* ---- counters ---- */
-unsigned long st_rx_frames, st_rx_data, st_rx_bytes, st_rx_undecrypted, st_rx_nodecrypt_drop;
+unsigned long st_rx_frames, st_rx_data, st_rx_bytes, st_rx_undecrypted, st_rx_nodecrypt_drop, st_rx_undec_group, st_rx_undec_uni;
 
 /* ---------------- Block Ack (A-MPDU) ---------------- */
 static bool tx_ba_pending[16], tx_ba_ready_[16];
