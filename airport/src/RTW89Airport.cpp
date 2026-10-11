@@ -85,6 +85,7 @@ void RTW89Airport::applyLink(bool up)
 	if (up) {
 		setLinkStatus(kIONetworkLinkValid | kIONetworkLinkActive, getCurrentMedium(), 866000000);
 		fNetIf->setLinkState(kIO80211NetworkLinkUp, 0);
+		fNetIf->setLinkQualityMetric(100);
 	} else {
 		setLinkStatus(kIONetworkLinkValid, getCurrentMedium(), 0);
 		fNetIf->setLinkState(kIO80211NetworkLinkDown, 0);
@@ -161,8 +162,19 @@ bool RTW89Airport::configureInterface(IONetworkInterface *netif)
 	return super::configureInterface(netif);
 }
 
-IOReturn RTW89Airport::enable(IONetworkInterface *netif) { LOG("enable\n"); return kIOReturnSuccess; }
-IOReturn RTW89Airport::disable(IONetworkInterface *netif) { LOG("disable\n"); return kIOReturnSuccess; }
+IOReturn RTW89Airport::enable(IONetworkInterface *netif)
+{
+	LOG("enable\n");
+	super::enable(netif);
+	return kIOReturnSuccess;
+}
+IOReturn RTW89Airport::disable(IONetworkInterface *netif)
+{
+	LOG("disable\n");
+	super::disable(netif);
+	setLinkStatus(kIONetworkLinkValid);
+	return kIOReturnSuccess;
+}
 
 IOReturn RTW89Airport::getHardwareAddress(IOEthernetAddress *addr) { *addr = fMac; return kIOReturnSuccess; }
 IOReturn RTW89Airport::getHardwareAddressForInterface(IO80211Interface *netif, IOEthernetAddress *addr) { *addr = fMac; return kIOReturnSuccess; }
