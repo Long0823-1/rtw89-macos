@@ -4,6 +4,8 @@
 <dict>
 	<key>CFBundleIdentifier</key>
 	<string>local.rtw89.hold</string>
+	<key>CFBundleExecutable</key>
+	<string>RTW89Hold</string>
 	<key>CFBundleName</key>
 	<string>RTW89Hold</string>
 	<key>CFBundleDisplayName</key>
@@ -26,15 +28,17 @@
 		<string>8.0.0</string>
 		<key>com.apple.kpi.libkern</key>
 		<string>8.0.0</string>
+		<key>com.apple.kpi.mach</key>
+		<string>8.0.0</string>
 	</dict>
 	<key>IOKitPersonalities</key>
 	<dict>
 		<key>RTW89HoldVirtualCD</key>
 		<dict>
 			<key>CFBundleIdentifier</key>
-			<string>com.apple.driver.AppleUSBHostMergeProperties</string>
+			<string>local.rtw89.hold</string>
 			<key>IOClass</key>
-			<string>AppleUSBHostMergeProperties</string>
+			<string>RTW89Hold</string>
 			<key>IOProviderClass</key>
 			<string>IOUSBHostInterface</string>
 			<key>idVendor</key>
@@ -43,11 +47,6 @@
 			<integer>6699</integer>
 			<key>IOProbeScore</key>
 			<integer>100000</integer>
-			<key>IOProviderMergeProperties</key>
-			<dict>
-				<key>RTW89HoldInterface</key>
-				<true/>
-			</dict>
 		</dict>
 		<key>RTW89HoldMarker</key>
 		<dict>
