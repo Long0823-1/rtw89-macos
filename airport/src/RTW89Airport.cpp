@@ -396,6 +396,27 @@ SInt32 RTW89Airport::apple80211RequestImpl(unsigned int request_type, int reques
 	case APPLE80211_IOC_DEAUTH:
 		if (!get) { fDisassocSeq++; setProperty("RTW89DisassocSeq", (UInt64)fDisassocSeq, 32); }
 		return kIOReturnSuccess;
+	case APPLE80211_IOC_AUTH_TYPE: {
+		if (!get) return kIOReturnSuccess;
+		auto *ad = (apple80211_authtype_data *)data;
+		ad->version = APPLE80211_VERSION;
+		ad->authtype_lower = APPLE80211_AUTHTYPE_OPEN;
+		ad->authtype_upper = fLink.up ? APPLE80211_AUTHTYPE_WPA2_PSK : APPLE80211_AUTHTYPE_NONE;
+		return kIOReturnSuccess;
+	}
+	case APPLE80211_IOC_LINK_CHANGED_EVENT_DATA: {
+		if (!get) return kIOReturnError;
+		auto *ed = (apple80211_link_changed_event_data *)data;
+		memset(ed, 0, sizeof(*ed));
+		ed->isLinkDown = !fLink.up;
+		if (ed->isLinkDown) { ed->voluntary = true; ed->reason = APPLE80211_LINK_DOWN_REASON_DEAUTH; }
+		else ed->rssi = (uint32_t)(int32_t)fLink.rssi;
+		return kIOReturnSuccess;
+	}
+	case APPLE80211_IOC_RATE_SET:
+	case APPLE80211_IOC_MCS_INDEX_SET:
+	case APPLE80211_IOC_VHT_MCS_INDEX_SET:
+		return get ? 6 : kIOReturnSuccess;
 	case APPLE80211_IOC_ROAM_THRESH: {
 		if (!get) return kIOReturnSuccess;
 		auto *md = (apple80211_roam_threshold_data *)data;
