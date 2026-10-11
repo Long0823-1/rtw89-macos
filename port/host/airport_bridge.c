@@ -27,9 +27,24 @@ static io_connect_t g_conn;
 static volatile int g_active;
 static unsigned long g_tx_n, g_rx_n;
 
+static int g_trace;
+static void trace_frame(const char *dir, const unsigned char *eth, size_t len)
+{
+	if (g_trace <= 0 || len < 14) return;
+	unsigned et = (eth[12] << 8) | eth[13];
+	int port = -1;
+	if (et == 0x0800 && len >= 14 + 20 + 8 && eth[14 + 9] == 17) { size_t ihl = (eth[14] & 0xf) * 4; port = (eth[14 + ihl + 2] << 8) | eth[14 + ihl + 3]; }
+	if (et == 0x0806 || port == 67 || port == 68) {
+		g_trace--;
+		fprintf(stderr, "[airport] %s %02x:%02x:%02x:%02x:%02x:%02x -> %02x:%02x:%02x:%02x:%02x:%02x type %04x len %zu%s\n", dir,
+			eth[6], eth[7], eth[8], eth[9], eth[10], eth[11], eth[0], eth[1], eth[2], eth[3], eth[4], eth[5], et, len, port > 0 ? (port == 67 ? " udp->67" : " udp->68") : "");
+	}
+}
+
 static int rx_hook(const unsigned char *eth, size_t len)
 {
 	if (!g_active || !g_conn) return 0;
+	trace_frame("rx", eth, len);
 	g_rx_n++;
 	IOConnectCallStructMethod(g_conn, 0, eth, len, NULL, NULL);
 	return 1;
@@ -44,7 +59,7 @@ static void *tx_thread(void *arg)
 	for (;;) {
 		while (IODataQueueDataAvailable(q)) {
 			uint32_t sz = sizeof buf;
-			if (IODataQueueDequeue(q, buf, &sz) == KERN_SUCCESS && sz >= 14) { g_tx_n++; if (g_tx_n <= 8) fprintf(stderr, "[airport] tx from en3: %u bytes, ethertype %02x%02x\n", sz, buf[12], buf[13]); net_tx_raw(buf, sz); }
+			if (IODataQueueDequeue(q, buf, &sz) == KERN_SUCCESS && sz >= 14) { g_tx_n++; trace_frame("tx", buf, sz); net_tx_raw(buf, sz); }
 			else break;
 		}
 		IODataQueueWaitForAvailableData(q, port);
@@ -90,6 +105,7 @@ void airport_assoc_failed(void)
 void airport_data_active(int on)
 {
 	g_active = on;
+	g_trace = on ? 40 : 0;
 	if (g_conn) { uint64_t v = on; IOConnectCallScalarMethod(g_conn, 1, &v, 1, NULL, NULL); }
 }
 
@@ -214,6 +230,7 @@ static void handle_assoc(io_service_t s)
 	CFRelease(p);
 }
 
+static int last_up = -1;
 static void push_link(io_service_t s, struct rtw_link *last)
 {
 	struct rtw_link l;
@@ -235,7 +252,8 @@ static void push_link(io_service_t s, struct rtw_link *last)
 	CFDataRef d = CFDataCreate(kCFAllocatorDefault, (const UInt8 *)&l, sizeof l);
 	IOReturn r = IORegistryEntrySetCFProperty(s, CFSTR("RTW89Link"), d);
 	CFRelease(d);
-	fprintf(stderr, "[airport] link %s (0x%x)\n", l.up ? "up" : "down", r);
+	if (l.up != last_up) fprintf(stderr, "[airport] link %s (0x%x)\n", l.up ? "up" : "down", r);
+	last_up = l.up;
 }
 
 static void *bridge_thread(void *a)

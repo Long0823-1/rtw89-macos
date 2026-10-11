@@ -549,6 +549,12 @@ int daemon_main(void)
 		if (D.want_pmk_set) { extern unsigned char g_pmk_override[32]; extern int g_pmk_override_set; memcpy(g_pmk_override, D.want_pmk, 32); g_pmk_override_set = 1; D.want_pmk_set = false; }
 		pthread_mutex_unlock(&D.lock);
 		int r = mlme_connect(ssid, open ? NULL : psk);
+		for (int tries = 0; r == -EACCES && airport_data_ready() && tries < 2; tries++) {	/* handshakes right after an adapter reset can time out once; retry before reporting a wrong password */
+			fprintf(stderr, "[daemon] handshake failed, retrying (%d)\n", tries + 1);
+			mlme_disconnect();
+			sleep(1);
+			r = mlme_connect(ssid, open ? NULL : psk);
+		}
 		if (r == 0) { pthread_mutex_lock(&D.lock); D.link_up = true; pthread_mutex_unlock(&D.lock); }
 		if (r == 0 && !getenv("RTW89_UTUN")) {
 			/* macOS drives en3 (DHCP, ARP, IPv6 included); frames are exchanged with RTW89Airport.kext */
