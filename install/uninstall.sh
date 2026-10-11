@@ -1,5 +1,5 @@
 #!/bin/bash
-# Removes the RTW89 Wi-Fi driver daemon and app. Run with: sudo ./uninstall.sh
+# Removes the rtw89d daemon. Run with: sudo ./uninstall.sh
 if [ "$(id -u)" != 0 ]; then echo "run with sudo"; exit 1; fi
 USER_NAME="${SUDO_USER:-$(stat -f %Su /dev/console)}"
 USER_HOME="$(dscl . -read /Users/$USER_NAME NFSHomeDirectory | awk '{print $2}')"

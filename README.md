@@ -9,7 +9,7 @@ TP-Link **Archer TX20U Nano**(Realtek **RTL8852B**、USB、Wi-Fi 6)を macOS Tah
 * USB 接続の認識(最初は `0bda:1a2b` の仮想 CD として見えるため、Wi-Fi モードへの切り替えを自動で行います)
 * スキャン(2.4GHz / 5GHz)、WPA2-PSK 接続、**WPA3-Personal(SAE)**、DHCP、IPv4 / **IPv6(SLAAC)**
 * 40/80MHz 帯域、ブロック ACK(A-MPDU)。USB 2.0 接続で下り約 160Mbit/s、上り約 260Mbit/s
-* 常駐デーモン(自動接続、再接続、DHCP 更新)とメニューバーアプリ。有線が切れたときは macOS が Wi-Fi に自動で切り替えます
+* 常駐デーモンと、macOS 標準の「システム設定 > Wi-Fi」からの操作(スキャン、接続、切断)。通信は `en3` を通り、DHCP/IPv6 は macOS が行います。有線が切れたときは macOS が Wi-Fi に切り替えます
 
 ## 仕組み
 ```
@@ -28,7 +28,7 @@ macOS アプリ(メニューバー) ──制御ソケット──▶ rtw89d(roo
 ```bash
 scripts/fetch-firmware.sh                 # Realtek のファームウェアを取得(リポジトリには含みません)
 cd port && make                           # rtw89d をビルド
-cd ../app && swiftc -O Sources/main.swift -o RTW89WiFi.app/Contents/MacOS/RTW89WiFi -framework AppKit && codesign -s - --force RTW89WiFi.app
+cd ../airport && ./build.sh    # RTW89Airport.kext(システム設定に出すためのドライバ。kext/ と airport/README.md を参照)
 ```
 
 動作確認(root でなくても USB は開けますが、utun の作成には root が必要です):
@@ -37,7 +37,7 @@ sudo RTW89_FW_DIR=$PWD/rtw89 ./port/rtw89d daemon      # デーモン(制御ソ�
 echo status | nc -U /var/run/rtw89d.sock
 ```
 
-インストール(LaunchDaemon + メニューバーアプリ): `sudo install/install.sh`、削除: `sudo install/uninstall.sh`。
+インストール(LaunchDaemon): `sudo install/install.sh`、削除: `sudo install/uninstall.sh`。
 `install.sh --dev` は root のデーモンがビルド成果物を直接実行する**開発用**の設定です。普段使いには向きません。
 
 ## 環境変数・制御コマンド(デバッグ)
