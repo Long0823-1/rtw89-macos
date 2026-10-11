@@ -368,19 +368,6 @@ int kc_usb_modeswitch(void)
 		(*di)->GetDeviceVendor(di, &v); (*di)->GetDeviceProduct(di, &p);
 		if (v != 0x0bda || p != 0x1a2b) { (*di)->Release(di); continue; }
 		if ((*di)->USBDeviceOpenSeize(di)) { (*di)->Release(di); continue; }
-		/* still in virtual-CD mode after several attempts: re-enumerate the device (a software unplug/replug), which fixes ports
-		 * behind hubs where the SCSI commands are accepted but the switch never happens */
-		{
-			static int tries;
-			fprintf(stderr, "usb: mode switch pass %d\n", tries + 1);
-			if (++tries % 4 == 0) {
-				IOReturn rr = (*di)->USBDeviceReEnumerate(di, 0);
-				fprintf(stderr, "usb: device re-enumerate requested (0x%x)\n", rr);
-				(*di)->USBDeviceClose(di); (*di)->Release(di);
-				done = 1;
-				continue;
-			}
-		}
 		IOUSBFindInterfaceRequest rq = { kIOUSBFindInterfaceDontCare, kIOUSBFindInterfaceDontCare, kIOUSBFindInterfaceDontCare, kIOUSBFindInterfaceDontCare };
 		io_iterator_t ii; (*di)->CreateInterfaceIterator(di, &rq, &ii);
 		io_service_t is = IOIteratorNext(ii);
@@ -393,7 +380,9 @@ int kc_usb_modeswitch(void)
 			/* the kernel mass-storage driver owns this interface and is often busy probing it; keep trying to seize it */
 			IOReturn orr = intf ? (*intf)->USBInterfaceOpenSeize(intf) : -1;
 			for (int w = 0; intf && orr == 0xe00002c5 && w < 50; w++) { usleep(200000); orr = (*intf)->USBInterfaceOpenSeize(intf); }
-			if (orr) fprintf(stderr, "usb: mode switch cannot open the interface (0x%x)\n", orr);
+			if (orr) {
+				fprintf(stderr, "usb: mode switch cannot open the interface (0x%x)\n", orr);
+			}
 			if (intf && orr == 0) {
 				UInt8 n, outp = 0;
 				(*intf)->GetNumEndpoints(intf, &n);
