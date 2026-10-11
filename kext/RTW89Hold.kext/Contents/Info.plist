@@ -45,6 +45,10 @@
 			<integer>3034</integer>
 			<key>idProduct</key>
 			<integer>6699</integer>
+			<key>bConfigurationValue</key>
+			<integer>1</integer>
+			<key>bInterfaceNumber</key>
+			<integer>0</integer>
 			<key>IOProbeScore</key>
 			<integer>100000</integer>
 		</dict>
