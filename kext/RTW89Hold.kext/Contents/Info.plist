@@ -35,8 +35,6 @@
 			<string>com.apple.driver.AppleUSBHostMergeProperties</string>
 			<key>IOClass</key>
 			<string>AppleUSBHostMergeProperties</string>
-			<key>IOMatchCategory</key>
-			<string>IOUSBMassStorageInterfaceNub</string>
 			<key>IOProviderClass</key>
 			<string>IOUSBHostInterface</string>
 			<key>idVendor</key>
