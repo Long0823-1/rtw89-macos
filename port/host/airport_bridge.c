@@ -20,7 +20,7 @@ static io_service_t find_kext(void)
 
 static long read_seq(io_service_t s)
 {
-	long v = -1;
+	long v = 0;	/* the property only appears after the first scan request */
 	CFTypeRef p = IORegistryEntryCreateCFProperty(s, CFSTR("RTW89ScanSeq"), kCFAllocatorDefault, 0);
 	if (p) {
 		if (CFGetTypeID(p) == CFNumberGetTypeID()) CFNumberGetValue(p, kCFNumberLongType, &v);
@@ -68,7 +68,7 @@ static void *bridge_thread(void *a)
 		usleep(250000);
 		if (!svc) { svc = find_kext(); if (!svc) continue; last = read_seq(svc); fprintf(stderr, "[airport] kext found\n"); continue; }
 		long seq = read_seq(svc);
-		if (seq < 0) { IOObjectRelease(svc); svc = 0; continue; }	/* kext went away */
+		if (IORegistryEntryGetRegistryEntryID(svc, &(uint64_t){0}) != KERN_SUCCESS) { IOObjectRelease(svc); svc = 0; continue; }	/* kext went away */
 		if (seq != last) {
 			last = seq;
 			scans_at_request = daemon_scan_count();
