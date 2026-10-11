@@ -199,6 +199,50 @@ void daemon_request_scan(void)
 }
 extern void airport_bridge_start(void);
 
+/* ---- entry points used by the kext bridge (System Settings Wi-Fi) ---- */
+/* returns 0 on accepted, -1 when the passphrase is missing and the network is not known */
+int daemon_connect_request(const char *ssid, const char *psk, bool open)
+{
+	char use_psk[65] = "";
+	bool use_open = open;
+	if (!open && (!psk || !*psk)) {
+		int k;
+		for (k = 0; k < nknown; k++) if (!strcmp(known[k].ssid, ssid)) break;
+		if (k == nknown) return -1;
+		snprintf(use_psk, sizeof use_psk, "%s", known[k].psk);
+		use_open = known[k].open;
+	} else if (!open) snprintf(use_psk, sizeof use_psk, "%s", psk);
+	known_add(ssid, use_psk, use_open);
+	pthread_mutex_lock(&D.lock);
+	snprintf(D.want_ssid, sizeof D.want_ssid, "%s", ssid);
+	snprintf(D.want_psk, sizeof D.want_psk, "%s", use_psk);
+	D.want_open = use_open; D.want_active = true; D.autoconnect = true; D.link_lost = (D.state == D_CONNECTED);
+	pthread_cond_broadcast(&D.cond);
+	pthread_mutex_unlock(&D.lock);
+	return 0;
+}
+
+void daemon_disconnect_request(void)
+{
+	pthread_mutex_lock(&D.lock); D.want_active = false; D.autoconnect = false; D.link_lost = (D.state == D_CONNECTED); if (D.state == D_FAILED) D.state = D_IDLE; pthread_cond_broadcast(&D.cond); pthread_mutex_unlock(&D.lock);
+}
+
+/* fills the current link; returns true when associated and the network is up */
+bool daemon_link_info(char *ssid, size_t n, unsigned char bssid[6], int *chan, int *sig)
+{
+	char bs[32] = "";
+	pthread_mutex_lock(&D.lock);
+	bool up = D.state == D_CONNECTED;
+	snprintf(ssid, n, "%s", D.cur_ssid);
+	pthread_mutex_unlock(&D.lock);
+	if (!up) return false;
+	if (mlme_cur_info(bs, sizeof bs, chan, sig) != 0) return false;
+	unsigned v[6];
+	if (sscanf(bs, "%x:%x:%x:%x:%x:%x", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]) != 6) return false;
+	for (int i = 0; i < 6; i++) bssid[i] = (unsigned char)v[i];
+	return true;
+}
+
 static void handle_cmd(char *line, FILE *out)
 {
 	char *save, *cmd = strtok_r(line, " \t\r\n", &save);

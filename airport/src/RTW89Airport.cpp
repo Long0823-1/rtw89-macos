@@ -13,6 +13,9 @@ bool RTW89Airport::init(OSDictionary *properties)
 	fWorkLoop = nullptr;
 	fNetIf = nullptr;
 	fPower = 1;
+	fGate = nullptr;
+	memset(&fLink, 0, sizeof(fLink));
+	fAssocSeq = fDisassocSeq = 0;
 	memset(fVirtCount, 0, sizeof(fVirtCount));
 	fScanN = fScanCursor = fScanSeq = 0;
 	fScanWrap = false;
@@ -24,6 +27,7 @@ bool RTW89Airport::init(OSDictionary *properties)
 
 void RTW89Airport::free()
 {
+	if (fGate) { if (fWorkLoop) fWorkLoop->removeEventSource(fGate); fGate->release(); fGate = nullptr; }
 	if (fWorkLoop) { fWorkLoop->release(); fWorkLoop = nullptr; }
 	super::free();
 }
@@ -51,11 +55,32 @@ bool RTW89Airport::start(IOService *provider)
 		super::stop(provider);
 		return false;
 	}
+	fGate = IOCommandGate::commandGate(this);
+	if (fGate && fWorkLoop) fWorkLoop->addEventSource(fGate);
 	setLinkStatus(kIONetworkLinkValid);
 	registerService();
 	if (fNetIf) fNetIf->registerService();
 	LOG("interface attached\n");
 	return true;
+}
+
+IOReturn RTW89Airport::linkAction(OSObject *owner, void *arg0, void *arg1, void *arg2, void *arg3)
+{
+	applyLink((uintptr_t)arg0 != 0);
+	return kIOReturnSuccess;
+}
+
+void RTW89Airport::applyLink(bool up)
+{
+	if (!fNetIf) return;
+	if (up) {
+		setLinkStatus(kIONetworkLinkValid | kIONetworkLinkActive, getCurrentMedium(), 866000000);
+		fNetIf->setLinkState(kIO80211NetworkLinkUp, 0);
+	} else {
+		setLinkStatus(kIONetworkLinkValid, getCurrentMedium(), 0);
+		fNetIf->setLinkState(kIO80211NetworkLinkDown, 0);
+	}
+	fNetIf->postMessage(APPLE80211_M_LINK_CHANGED);
 }
 
 bool RTW89Airport::createMediumTables(const IONetworkMedium **primary)
@@ -82,6 +107,18 @@ IOReturn RTW89Airport::setProperties(OSObject *properties)
 		fScanN = n;
 		fScanCursor = 0;
 		fScanWrap = false;
+	}
+	if (OSData *ld = OSDynamicCast(OSData, d->getObject("RTW89Link"))) {
+		if (ld->getLength() >= sizeof(rtw_link)) {
+			rtw_link nl;
+			memcpy(&nl, ld->getBytesNoCopy(), sizeof(nl));
+			bool changed = nl.up != fLink.up;
+			fLink = nl;
+			if (changed) {
+				if (fGate) fGate->runAction(OSMemberFunctionCast(IOCommandGate::Action, this, &RTW89Airport::linkAction), (void *)(uintptr_t)nl.up);
+				else applyLink(nl.up);
+			}
+		}
 	}
 	if (OSBoolean *done = OSDynamicCast(OSBoolean, d->getObject("RTW89ScanDone"))) {
 		if (done == kOSBooleanTrue && fNetIf) fNetIf->postMessage(APPLE80211_M_SCAN_DONE);
@@ -244,7 +281,7 @@ SInt32 RTW89Airport::apple80211RequestImpl(unsigned int request_type, int reques
 		auto *sd = (apple80211_state_data *)data;
 		memset(sd, 0, sizeof(*sd));
 		sd->version = APPLE80211_VERSION;
-		sd->state = APPLE80211_S_INIT;
+		sd->state = fLink.up ? APPLE80211_S_RUN : APPLE80211_S_INIT;
 		return kIOReturnSuccess;
 	}
 	case APPLE80211_IOC_LOCALE: {
@@ -277,14 +314,88 @@ SInt32 RTW89Airport::apple80211RequestImpl(unsigned int request_type, int reques
 		sc->num_channels = n;
 		return kIOReturnSuccess;
 	}
-	case APPLE80211_IOC_SSID:
-	case APPLE80211_IOC_BSSID:
-	case APPLE80211_IOC_CHANNEL:
-	case APPLE80211_IOC_RSSI:
-	case APPLE80211_IOC_RATE:
-	case APPLE80211_IOC_ASSOCIATE_RESULT:
-		/* not associated yet: Apple drivers answer ENXIO-like errors for these */
-		return get ? 6 : kIOReturnUnsupported;
+	case APPLE80211_IOC_SSID: {
+		if (!get) return kIOReturnSuccess;
+		if (!fLink.up) return 6;
+		auto *sd = (apple80211_ssid_data *)data;
+		memset(sd, 0, sizeof(*sd));
+		sd->version = APPLE80211_VERSION;
+		sd->ssid_len = fLink.ssid_len;
+		memcpy(sd->ssid_bytes, fLink.ssid, fLink.ssid_len);
+		return kIOReturnSuccess;
+	}
+	case APPLE80211_IOC_BSSID: {
+		if (!get) return kIOReturnSuccess;
+		if (!fLink.up) return 6;
+		auto *bd = (apple80211_bssid_data *)data;
+		memset(bd, 0, sizeof(*bd));
+		bd->version = APPLE80211_VERSION;
+		memcpy(bd->bssid.octet, fLink.bssid, 6);
+		return kIOReturnSuccess;
+	}
+	case APPLE80211_IOC_CHANNEL: {
+		if (!get) return kIOReturnSuccess;
+		if (!fLink.up) return 6;
+		auto *cd = (apple80211_channel_data *)data;
+		memset(cd, 0, sizeof(*cd));
+		cd->version = APPLE80211_VERSION;
+		cd->channel.version = APPLE80211_VERSION;
+		cd->channel.channel = fLink.channel;
+		cd->channel.flags = (fLink.band5 ? APPLE80211_C_FLAG_5GHZ : APPLE80211_C_FLAG_2GHZ) | APPLE80211_C_FLAG_20MHZ | APPLE80211_C_FLAG_ACTIVE;
+		return kIOReturnSuccess;
+	}
+	case APPLE80211_IOC_RSSI: {
+		if (!get) return kIOReturnError;
+		if (!fLink.up) return 6;
+		auto *rd = (apple80211_rssi_data *)data;
+		memset(rd, 0, sizeof(*rd));
+		rd->version = APPLE80211_VERSION;
+		rd->num_radios = 1;
+		rd->rssi_unit = APPLE80211_UNIT_DBM;
+		rd->rssi[0] = rd->aggregate_rssi = rd->rssi_ext[0] = rd->aggregate_rssi_ext = fLink.rssi;
+		return kIOReturnSuccess;
+	}
+	case APPLE80211_IOC_RATE: {
+		if (!get) return kIOReturnError;
+		if (!fLink.up) return 6;
+		auto *rt = (apple80211_rate_data *)data;
+		memset(rt, 0, sizeof(*rt));
+		rt->version = APPLE80211_VERSION;
+		rt->num_radios = 1;
+		rt->rate[0] = 866;
+		return kIOReturnSuccess;
+	}
+	case APPLE80211_IOC_ASSOCIATE_RESULT: {
+		if (!get) return kIOReturnError;
+		auto *ar = (apple80211_assoc_result_data *)data;
+		ar->version = APPLE80211_VERSION;
+		ar->result = fLink.up ? 0 : 1;
+		return kIOReturnSuccess;
+	}
+	case APPLE80211_IOC_ASSOCIATE: {
+		if (get) return kIOReturnError;
+		auto *ad = (apple80211_assoc_data *)data;
+		rtw_assoc_req rq;
+		memset(&rq, 0, sizeof(rq));
+		rq.seq = ++fAssocSeq;
+		rq.ssid_len = ad->ad_ssid_len > 32 ? 32 : ad->ad_ssid_len;
+		memcpy(rq.ssid, ad->ad_ssid, rq.ssid_len);
+		memcpy(rq.bssid, ad->ad_bssid.octet, 6);
+		rq.auth_lower = ad->ad_auth_lower;
+		rq.auth_upper = ad->ad_auth_upper;
+		rq.key_len = ad->ad_key.key_len > 64 ? 64 : ad->ad_key.key_len;
+		memcpy(rq.key, ad->ad_key.key, rq.key_len);
+		rq.rsn_len = ad->ad_rsn_ie_len > 64 ? 64 : ad->ad_rsn_ie_len;
+		memcpy(rq.rsn, ad->ad_rsn_ie, rq.rsn_len);
+		OSData *od = OSData::withBytes(&rq, sizeof(rq));
+		if (od) { setProperty("RTW89AssocReq", od); od->release(); }
+		setProperty("RTW89AssocSeq", (UInt64)fAssocSeq, 32);
+		return kIOReturnSuccess;
+	}
+	case APPLE80211_IOC_DISASSOCIATE:
+	case APPLE80211_IOC_DEAUTH:
+		if (!get) { fDisassocSeq++; setProperty("RTW89DisassocSeq", (UInt64)fDisassocSeq, 32); }
+		return kIOReturnSuccess;
 	case APPLE80211_IOC_ROAM_THRESH: {
 		if (!get) return kIOReturnSuccess;
 		auto *md = (apple80211_roam_threshold_data *)data;
@@ -314,8 +425,6 @@ SInt32 RTW89Airport::apple80211RequestImpl(unsigned int request_type, int reques
 		as->status = 0;
 		return kIOReturnSuccess;
 	}
-	case APPLE80211_IOC_DISASSOCIATE:
-		return kIOReturnSuccess;
 	case APPLE80211_IOC_SCAN_REQ:
 	case APPLE80211_IOC_SCAN_REQ_MULTIPLE: {
 		if (get) return kIOReturnError;

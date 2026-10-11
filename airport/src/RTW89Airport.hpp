@@ -48,7 +48,14 @@ public:
 	bool createMediumTables(const IONetworkMedium **primary);
 	void noteRequest(unsigned type, int num, bool handled);
 
+	static IOReturn linkActionStatic(OSObject *owner, void *arg0, void *arg1, void *arg2, void *arg3);
+	IOReturn linkAction(OSObject *owner, void *arg0, void *arg1, void *arg2, void *arg3);
+	void applyLink(bool up);
+
 private:
+	IOCommandGate *fGate;
+	rtw_link fLink;
+	UInt32 fAssocSeq, fDisassocSeq;
 	UInt32 fVirtCount[2][256];
 	rtw_scan_ent fScan[RTW_AP_MAX_SCAN];
 	UInt32 fScanN, fScanCursor, fScanSeq;
