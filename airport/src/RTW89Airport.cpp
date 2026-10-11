@@ -88,9 +88,11 @@ void RTW89Airport::applyLink(bool up)
 		setLinkStatus(kIONetworkLinkValid | kIONetworkLinkActive, getCurrentMedium(), 866000000);
 		fNetIf->setLinkState(kIO80211NetworkLinkUp, 0);
 		fNetIf->setLinkQualityMetric(100);
+		if (ifnet_t ifp = fNetIf->getIfnet()) ifnet_set_flags(ifp, IFF_RUNNING, IFF_RUNNING);	/* the legacy family does not always raise it */
 	} else {
 		setLinkStatus(kIONetworkLinkValid, getCurrentMedium(), 0);
 		fNetIf->setLinkState(kIO80211NetworkLinkDown, 0);
+		if (ifnet_t ifp = fNetIf->getIfnet()) ifnet_set_flags(ifp, 0, IFF_RUNNING);
 	}
 	fNetIf->postMessage(APPLE80211_M_LINK_CHANGED);
 }
