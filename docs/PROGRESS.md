@@ -138,3 +138,8 @@ Cause: the zero-length packet that terminates a bulk OUT transfer of an exact mu
 completion callback, by which time the next queued transfer was already behind it, so the chip merged two transfers.
 Fix: queue the ZLP right behind the data under the submit lock. A 240 s saturating soak ran with no stall.
 Note: do not poll chip registers from another thread (the USB register-read buffer is not thread safe).
+
+## Milestone 15 — mode switch hardening
+The virtual-CD interface is often held by IOUSBMassStorageDriver (seize fails with 0xe00002c5, or the device vanishes while re-enumerating).
+Daemon: retry seize, re-apply the configuration to rebuild the interface nodes. Cleaner fix: `kext/RTW89Hold.kext` (codeless, loaded
+through OpenCore) keeps Apple's driver from binding to 0bda:1a2b. Do not re-enumerate/reset the device mid-switch.
