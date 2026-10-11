@@ -372,6 +372,7 @@ int kc_usb_modeswitch(void)
 		 * behind hubs where the SCSI commands are accepted but the switch never happens */
 		{
 			static int tries;
+			fprintf(stderr, "usb: mode switch pass %d\n", tries + 1);
 			if (++tries % 4 == 0) {
 				IOReturn rr = (*di)->USBDeviceReEnumerate(di, 0);
 				fprintf(stderr, "usb: device re-enumerate requested (0x%x)\n", rr);
@@ -389,7 +390,11 @@ int kc_usb_modeswitch(void)
 			IOCreatePlugInInterfaceForService(is, kIOUSBInterfaceUserClientTypeID, kIOCFPlugInInterfaceID, &ipl, &sc);
 			(*ipl)->QueryInterface(ipl, CFUUIDGetUUIDBytes(kIOUSBInterfaceInterfaceID942), (LPVOID *)&intf);
 			IODestroyPlugInInterface(ipl);
-			if (intf && (*intf)->USBInterfaceOpenSeize(intf) == 0) {
+			/* the kernel mass-storage driver owns this interface and is often busy probing it; keep trying to seize it */
+			IOReturn orr = intf ? (*intf)->USBInterfaceOpenSeize(intf) : -1;
+			for (int w = 0; intf && orr == 0xe00002c5 && w < 50; w++) { usleep(200000); orr = (*intf)->USBInterfaceOpenSeize(intf); }
+			if (orr) fprintf(stderr, "usb: mode switch cannot open the interface (0x%x)\n", orr);
+			if (intf && orr == 0) {
 				UInt8 n, outp = 0;
 				(*intf)->GetNumEndpoints(intf, &n);
 				for (UInt8 i = 1; i <= n; i++) {
