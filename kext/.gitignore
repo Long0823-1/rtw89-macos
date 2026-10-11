@@ -1,0 +1,3 @@
+RTW89Hold.kext/Contents/MacOS/
+RTW89Hold.kext/Contents/_CodeSignature/
+src/*.o
