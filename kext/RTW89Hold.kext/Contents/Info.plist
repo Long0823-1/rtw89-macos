@@ -32,11 +32,11 @@
 		<key>RTW89HoldVirtualCD</key>
 		<dict>
 			<key>CFBundleIdentifier</key>
-			<string>com.apple.kpi.iokit</string>
+			<string>com.apple.driver.AppleUSBHostMergeProperties</string>
+			<key>IOClass</key>
+			<string>AppleUSBHostMergeProperties</string>
 			<key>IOMatchCategory</key>
 			<string>IOUSBMassStorageInterfaceNub</string>
-			<key>IOClass</key>
-			<string>IOService</string>
 			<key>IOProviderClass</key>
 			<string>IOUSBHostInterface</string>
 			<key>idVendor</key>
@@ -45,6 +45,11 @@
 			<integer>6699</integer>
 			<key>IOProbeScore</key>
 			<integer>100000</integer>
+			<key>IOProviderMergeProperties</key>
+			<dict>
+				<key>RTW89HoldInterface</key>
+				<true/>
+			</dict>
 		</dict>
 		<key>RTW89HoldMarker</key>
 		<dict>
