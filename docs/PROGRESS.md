@@ -159,3 +159,6 @@ Lessons: airportd drops scan results unless CHANNELS_INFO etc. are answered; ASS
 in the associate request; failures must be reported (ASSOC_DONE) so macOS prompts again; IFF_RUNNING must be raised explicitly and enable() must
 call the superclass; scans need wildcard probe requests (active) or APs flicker; results are merged over 45 s.
 Open items: WPA3-SAE from System Settings (needs the passphrase, macOS only provides a PMK for WPA2), sleep/wake, throughput on en3, adapter stall under load.
+
+Throughput over en3 (USB 2.0, 80 MHz, WPA2, ~-41 dBm): curl download ~142 Mbit/s, upload ~155 Mbit/s, LAN ping ~2.6 ms
+(networkQuality reports less because of its responsiveness tests). ~1% of TX frames are dropped when the shared TX queue is full.
