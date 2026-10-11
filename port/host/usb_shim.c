@@ -368,6 +368,18 @@ int kc_usb_modeswitch(void)
 		(*di)->GetDeviceVendor(di, &v); (*di)->GetDeviceProduct(di, &p);
 		if (v != 0x0bda || p != 0x1a2b) { (*di)->Release(di); continue; }
 		if ((*di)->USBDeviceOpenSeize(di)) { (*di)->Release(di); continue; }
+		/* still in virtual-CD mode after several attempts: re-enumerate the device (a software unplug/replug), which fixes ports
+		 * behind hubs where the SCSI commands are accepted but the switch never happens */
+		{
+			static int tries;
+			if (++tries % 4 == 0) {
+				IOReturn rr = (*di)->USBDeviceReEnumerate(di, 0);
+				fprintf(stderr, "usb: device re-enumerate requested (0x%x)\n", rr);
+				(*di)->USBDeviceClose(di); (*di)->Release(di);
+				done = 1;
+				continue;
+			}
+		}
 		IOUSBFindInterfaceRequest rq = { kIOUSBFindInterfaceDontCare, kIOUSBFindInterfaceDontCare, kIOUSBFindInterfaceDontCare, kIOUSBFindInterfaceDontCare };
 		io_iterator_t ii; (*di)->CreateInterfaceIterator(di, &rq, &ii);
 		io_service_t is = IOIteratorNext(ii);
