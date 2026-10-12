@@ -62,6 +62,9 @@ public:
 
 private:
 	UInt64 fScanLastReadNs;
+	UInt16 fReqChan[APPLE80211_MAX_CHANNELS];
+	UInt32 fReqFlags[APPLE80211_MAX_CHANNELS];
+	UInt32 fReqNChan;
 	UInt32 fAssocFailSeq;
 	UInt32 fTxCalls, fTxQueued, fRxOk, fRxFail, fBpfCalls, fBpfLastDlt, fBpfQueued;
 	bool queueEthernet(mbuf_t m);

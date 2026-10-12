@@ -19,6 +19,7 @@ bool RTW89Airport::init(OSDictionary *properties)
 	fDataActive = false;
 	fAssocFailSeq = 0;
 	fScanLastReadNs = 0;
+	fReqNChan = 0;
 	fTxCalls = fTxQueued = fRxOk = fRxFail = fBpfCalls = fBpfLastDlt = fBpfQueued = 0;
 	fGate = nullptr;
 	memset(&fLink, 0, sizeof(fLink));
@@ -558,12 +559,19 @@ SInt32 RTW89Airport::apple80211RequestImpl(unsigned int request_type, int reques
 			char b[200];
 			if (request_number == APPLE80211_IOC_SCAN_REQ) {
 				auto *sd = (apple80211_scan_data *)data;
+				fReqNChan = sd->num_channels > APPLE80211_MAX_CHANNELS ? APPLE80211_MAX_CHANNELS : sd->num_channels;
+				for (UInt32 i = 0; i < fReqNChan; i++) { fReqChan[i] = (UInt16)sd->channels[i].channel; fReqFlags[i] = sd->channels[i].flags; }
 				snprintf(b, sizeof b, "SCAN_REQ type=%u bss=%u phy=0x%x dwell=%u rest=%u nchan=%u first=%u ssid_len=%u", (unsigned)sd->scan_type, (unsigned)sd->bss_type, (unsigned)sd->phy_mode, (unsigned)sd->dwell_time, (unsigned)sd->rest_time, (unsigned)sd->num_channels, sd->num_channels ? (unsigned)sd->channels[0].channel : 0u, (unsigned)sd->ssid_len);
 			} else {
 				auto *sm = (apple80211_scan_multiple_data *)data;
 				snprintf(b, sizeof b, "SCAN_REQ_MULTIPLE type=%u ssids=%u bssids=%u dwell=%u rest=%u nchan=%u first=%u", (unsigned)sm->scan_type, (unsigned)sm->ssid_count, (unsigned)sm->bssid_count, (unsigned)sm->dwell_time, (unsigned)sm->rest_time, (unsigned)sm->num_channels, sm->num_channels ? (unsigned)sm->channels[0].channel : 0u);
 			}
 			setProperty("RTW89LastScanReq", b);
+			if (request_number == APPLE80211_IOC_SCAN_REQ && fReqNChan) {
+				char f[100];
+				snprintf(f, sizeof f, "ch0=%u flags0=0x%x chN=%u flagsN=0x%x", (unsigned)fReqChan[0], (unsigned)fReqFlags[0], (unsigned)fReqChan[fReqNChan - 1], (unsigned)fReqFlags[fReqNChan - 1]);
+				setProperty("RTW89LastScanFlags", f);
+			}
 		}
 		if (!fPower) return 22;
 		fScanCursor = 0; fScanWrap = false;	/* every pass of results follows a request: always start from the first entry */
@@ -593,6 +601,8 @@ SInt32 RTW89Airport::apple80211RequestImpl(unsigned int request_type, int reques
 		r->asr_channel.version = APPLE80211_VERSION;
 		r->asr_channel.channel = e.channel;
 		r->asr_channel.flags = (e.band5 ? APPLE80211_C_FLAG_5GHZ : APPLE80211_C_FLAG_2GHZ) | APPLE80211_C_FLAG_20MHZ | APPLE80211_C_FLAG_ACTIVE;
+		for (UInt32 i = 0; i < fReqNChan; i++)
+			if (fReqChan[i] == e.channel) { r->asr_channel.flags = fReqFlags[i]; break; }	/* describe the channel exactly as the request did */
 		r->asr_noise = e.noise;
 		r->asr_rssi = e.rssi;
 		r->asr_snr = e.rssi - e.noise;
