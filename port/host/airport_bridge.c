@@ -23,6 +23,7 @@ extern void daemon_disconnect_request(void);
 extern void daemon_set_autoconnect(int on);
 extern int daemon_fallback_connect(void);
 extern int daemon_has_last(void);
+extern int daemon_console_is_login(void);
 extern bool daemon_link_info(char *ssid, size_t n, unsigned char bssid[6], int *chan, int *sig);
 extern unsigned long daemon_scan_count(void);
 
@@ -371,7 +372,7 @@ static void *bridge_thread(void *a)
 		{
 			time_t now = time(NULL);
 			int grace = daemon_has_last() ? 1 : 25;
-			if (!getenv("RTW89_NOFALLBACK") && !power_off && last_up != 1 && !fallback_done && now - started > grace && now - last_request_at > grace && now - last_fallback_try >= 3) {
+			if (!getenv("RTW89_NOFALLBACK") && daemon_console_is_login() && !power_off && last_up != 1 && !fallback_done && now - started > grace && now - last_request_at > grace && now - last_fallback_try >= 3) {
 				last_fallback_try = now;
 				if (daemon_fallback_connect() == 0) fallback_done = 1;
 			}

@@ -11,6 +11,8 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
+static time_t g_daemon_start;
+
 extern void kc_runtime_init(void);
 extern int kc_usb_find_and_probe(const struct usb_driver *drv);
 extern void kc_usb_close(void);
@@ -189,7 +191,7 @@ static void cmd_status(FILE *f)
 	json_str(f, err);
 	char rr[48]; mlme_rx_rate_str(rr, sizeof rr);
 	fprintf(f, ",\"rx_rate\":\"%s\",\"width\":%u", rr, g_mlme.width == NL80211_CHAN_WIDTH_80 ? 80 : g_mlme.width == NL80211_CHAN_WIDTH_40 ? 40 : 20);
-	fprintf(f, ",\"sys\":%d", D.sys_assoc ? 1 : 0);
+	fprintf(f, ",\"sys\":%d,\"dstart\":%ld", D.sys_assoc ? 1 : 0, (long)(time(NULL) - g_daemon_start));
 	fprintf(f, ",\"rx_frames\":%lu,\"rx_data\":%lu,\"rx_bytes\":%lu,\"rx_undecrypted\":%lu,\"rx_undec_group\":%lu,\"rx_undec_uni\":%lu,\"utun_wr_err\":%lu", st_rx_frames, st_rx_data, st_rx_bytes, st_rx_undecrypted, st_rx_undec_group, st_rx_undec_uni, net_wr_err);
 	fprintf(f, ",\"known\":[");
 	for (int i = 0; i < nknown; i++) { if (i) fputc(',', f); json_str(f, known[i].ssid); }
@@ -221,6 +223,11 @@ static void cmd_list(FILE *f)
 	mlme_unlock();
 }
 
+int daemon_console_is_login(void)
+{
+	struct stat st;
+	return stat("/dev/console", &st) == 0 && st.st_uid == 0;	/* nobody is logged in: the login window owns the console */
+}
 static volatile unsigned long g_scan_count;
 unsigned long daemon_scan_count(void) { return g_scan_count; }
 void daemon_request_scan(void)
@@ -285,16 +292,19 @@ int daemon_connect_request(const char *ssid, const char *psk, bool open, const u
 
 /* the system has not asked for anything: join the strongest known network that is in range (used before login) */
 static const char *last_path(void) { return "/var/db/rtw89d/last.conf"; }
-static void last_save(const char *ssid) { FILE *f = fopen(last_path(), "w"); if (f) { chmod(last_path(), 0600); fputs(ssid, f); fclose(f); } }
-static bool last_load(char *ssid, size_t n)
+static void last_save(const char *ssid, int chan) { FILE *f = fopen(last_path(), "w"); if (f) { chmod(last_path(), 0600); fprintf(f, "%s\n%d\n", ssid, chan); fclose(f); } }
+static bool last_load_ex(char *ssid, size_t n, int *chan)
 {
 	FILE *f = fopen(last_path(), "r");
+	char line[64] = "";
 	if (!f) return false;
 	bool ok = fgets(ssid, (int)n, f) != NULL;
-	fclose(f);
 	ssid[strcspn(ssid, "\r\n")] = 0;
+	if (chan) { *chan = 0; if (ok && fgets(line, sizeof line, f)) *chan = atoi(line); }
+	fclose(f);
 	return ok && ssid[0];
 }
+static bool last_load(char *ssid, size_t n) { return last_load_ex(ssid, n, NULL); }
 int daemon_has_last(void) { char b[33]; return last_load(b, sizeof b); }
 
 int daemon_fallback_connect(void)
@@ -611,6 +621,7 @@ static void install_log_timestamps(void)
 int daemon_main(void)
 {
 	install_log_timestamps();
+	g_daemon_start = time(NULL);
 	kc_runtime_init();
 	known_load();
 	set_state(D_STARTING, "");
@@ -646,7 +657,12 @@ int daemon_main(void)
 		if (first || scan) {
 			bool was_conn = D.state == D_CONNECTED;
 			if (!was_conn) set_state(D_SCANNING, "");
-			mlme_scan(NULL);
+			{
+				char lssid[33];
+				int lchan = 0;
+				if (first && last_load_ex(lssid, sizeof lssid, &lchan) && lchan > 0) mlme_scan_quick(lssid, lchan);	/* rejoin quickly: one channel, one name */
+				else mlme_scan(NULL);
+			}
 			g_scan_count++;
 			if (!was_conn) set_state(D_IDLE, "");
 			if (first && D.autoconnect) pick_autoconnect();
@@ -706,7 +722,7 @@ int daemon_main(void)
 		D.state = D_CONNECTED; D.err[0] = 0; D.connected_at = time(NULL);
 		pthread_mutex_unlock(&D.lock);
 		fprintf(stderr, "[daemon] connected to \"%s\"\n", ssid);
-		last_save(ssid);
+		{ char b[32]; int c = 0, sg = 0; if (mlme_cur_info(b, sizeof b, &c, &sg) == 0) last_save(ssid, c); else last_save(ssid, 0); }
 	}
 	return 0;
 }

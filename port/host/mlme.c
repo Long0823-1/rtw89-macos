@@ -813,6 +813,17 @@ static void reset_completions(void)
 void mlme_lock(void) { pthread_mutex_lock(&bss_lock); }
 void mlme_unlock(void) { pthread_mutex_unlock(&bss_lock); }
 
+extern int g_scan_only_chan;
+
+/* quick scan of one channel for one network, used right after start to rejoin the previous network */
+int mlme_scan_quick(const char *ssid, int chan)
+{
+	g_scan_only_chan = chan;
+	int r = mlme_scan(ssid);
+	g_scan_only_chan = 0;
+	return r;
+}
+
 int mlme_scan(const char *ssid)
 {
 	unsigned long t0 = jiffies;

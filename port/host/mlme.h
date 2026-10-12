@@ -63,6 +63,7 @@ void mlme_dump_bss(void);
 void mlme_lock(void);
 void mlme_unlock(void);
 int mlme_scan(const char *ssid);
+int mlme_scan_quick(const char *ssid, int chan);
 int mlme_connect(const char *ssid, const char *psk);
 void mlme_set_authorized(void);
 void mlme_disconnect(void);

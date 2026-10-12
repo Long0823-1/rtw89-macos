@@ -486,6 +486,8 @@ int mm_tx(struct sk_buff *skb, struct ieee80211_sta *sta)
 	return 0;
 }
 
+int g_scan_only_chan;	/* 0 = every channel, otherwise only this channel number (quick directed scan) */
+
 int mm_hw_scan(const u8 *ssid, int ssid_len)
 {
 	struct mm *m = g_mm;
@@ -501,6 +503,7 @@ int mm_hw_scan(const u8 *ssid, int ssid_len)
 		if (!sb || b == NL80211_BAND_6GHZ) continue;
 		for (int i = 0; i < sb->n_channels; i++) {
 			if (sb->channels[i].flags & IEEE80211_CHAN_DISABLED) continue;
+			if (g_scan_only_chan && sb->channels[i].hw_value != g_scan_only_chan) continue;
 			rq->req.channels[k++] = &sb->channels[i];
 		}
 	}

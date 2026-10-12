@@ -6,11 +6,15 @@ IF=en3
 SOCK=/var/run/rtw89d.sock
 state() { echo status | nc -U $SOCK 2>/dev/null | sed -n 's/.*"state":"\([a-z_]*\)".*/\1/p'; }
 idle=0
+nap=1
 while true; do
-	sleep 8
+	sleep $nap
 	[ "$(networksetup -getairportpower $IF 2>/dev/null | awk '{print $NF}')" = "On" ] || { idle=0; continue; }
 	status=$(echo status | nc -U $SOCK 2>/dev/null)
 	st=$(echo "$status" | sed -n 's/.*"state":"\([a-z_]*\)".*/\1/p')
+	ds=$(echo "$status" | sed -n 's/.*"dstart":\([0-9]*\).*/\1/p')
+	# poll fast while the daemon is young, slowly afterwards
+	if [ -n "$ds" ] && [ "$ds" -lt 90 ]; then nap=1; else nap=8; fi
 	if [ "$st" = connected ] && echo "$status" | grep -q '"sys":0'; then
 		# the daemon joined by itself (e.g. before login) and macOS does not know the link: let macOS join the same network once
 		ssid=$(echo "$status" | sed -n 's/.*"ssid":"\([^"]*\)".*/\1/p')
@@ -21,7 +25,7 @@ while true; do
 		idle|failed) idle=$((idle + 1)) ;;
 		*) idle=0; continue ;;
 	esac
-	[ $idle -ge 2 ] || continue		# idle for ~16 s: macOS had its chance
+	[ $idle -ge 2 ] || continue		# idle for two polls: macOS had its chance
 	joined=0
 	while IFS= read -r ssid; do
 		[ -n "$ssid" ] || continue
