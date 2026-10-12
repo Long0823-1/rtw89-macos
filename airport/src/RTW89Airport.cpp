@@ -566,6 +566,7 @@ SInt32 RTW89Airport::apple80211RequestImpl(unsigned int request_type, int reques
 			setProperty("RTW89LastScanReq", b);
 		}
 		if (!fPower) return 22;
+		fScanCursor = 0; fScanWrap = false;	/* every pass of results follows a request: always start from the first entry */
 		fScanSeq++;
 		setProperty("RTW89ScanSeq", (UInt64)fScanSeq, 32);
 		return kIOReturnSuccess;
