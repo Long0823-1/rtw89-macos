@@ -40,6 +40,23 @@ chmod 644 /Library/LaunchDaemons/local.rtw89d.plist
 
 rm -f "$USER_HOME/Library/LaunchAgents/local.rtw89.wifi.plist"
 
+# auto-join helper: runs as the user after login
+install -m 755 "$HERE/install/wifi-autojoin.sh" /usr/local/libexec/rtw89/wifi-autojoin.sh
+mkdir -p "$USER_HOME/Library/LaunchAgents"
+cat > "$USER_HOME/Library/LaunchAgents/local.rtw89.autojoin.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>local.rtw89.autojoin</string>
+  <key>ProgramArguments</key><array><string>/usr/local/libexec/rtw89/wifi-autojoin.sh</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+</dict></plist>
+PLIST
+chown "$USER_NAME" "$USER_HOME/Library/LaunchAgents/local.rtw89.autojoin.plist"
+sudo -u "$USER_NAME" launchctl bootout gui/$(id -u "$USER_NAME") "$USER_HOME/Library/LaunchAgents/local.rtw89.autojoin.plist" 2>/dev/null || true
+sudo -u "$USER_NAME" launchctl bootstrap gui/$(id -u "$USER_NAME") "$USER_HOME/Library/LaunchAgents/local.rtw89.autojoin.plist" || true
+
 launchctl bootout system /Library/LaunchDaemons/local.rtw89d.plist 2>/dev/null || true
 launchctl bootstrap system /Library/LaunchDaemons/local.rtw89d.plist
 echo "Installed. Driver log: /var/log/rtw89d.log   Use System Settings > Wi-Fi."
