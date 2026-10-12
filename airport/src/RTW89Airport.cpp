@@ -18,6 +18,7 @@ bool RTW89Airport::init(OSDictionary *properties)
 	fAwdl = fP2pDev = fP2pGo = nullptr;
 	fDataActive = false;
 	fAssocFailSeq = 0;
+	fScanLastReadNs = 0;
 	fTxCalls = fTxQueued = fRxOk = fRxFail = fBpfCalls = fBpfLastDlt = fBpfQueued = 0;
 	fGate = nullptr;
 	memset(&fLink, 0, sizeof(fLink));
@@ -578,6 +579,14 @@ SInt32 RTW89Airport::apple80211RequestImpl(unsigned int request_type, int reques
 	}
 	case APPLE80211_IOC_SCAN_RESULT: {
 		if (!get) return kIOReturnError;
+		{	/* a read that comes long after the previous one starts a new pass, even if the old pass was never closed with the "no more" answer */
+			uint64_t abs;
+			UInt64 ns;
+			clock_get_uptime(&abs);
+			absolutetime_to_nanoseconds(abs, &ns);
+			if (fScanLastReadNs && ns - fScanLastReadNs > 500000000ULL) { fScanCursor = 0; fScanWrap = false; }
+			fScanLastReadNs = ns;
+		}
 		if (fScanCursor >= fScanN) {
 			if (fScanWrap) { fScanWrap = false; fScanCursor = 0; return 5; }
 			if (fScanN == 0) return 12;

@@ -61,6 +61,7 @@ public:
 	void applyLink(bool up);
 
 private:
+	UInt64 fScanLastReadNs;
 	UInt32 fAssocFailSeq;
 	UInt32 fTxCalls, fTxQueued, fRxOk, fRxFail, fBpfCalls, fBpfLastDlt, fBpfQueued;
 	bool queueEthernet(mbuf_t m);
