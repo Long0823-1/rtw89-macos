@@ -358,7 +358,7 @@ static void *bridge_thread(void *a)
 			time_t now = time(NULL);
 			if (!up_since) up_since = now;
 			if (have_ipv4()) { up_since = now; bounces = 0; }
-			else if (now - up_since > 20 && bounces < 3) {
+			else if (now - up_since > 60 && bounces < 1) {
 				bounces++;
 				fprintf(stderr, "[airport] no IPv4 address on en3 %ld s after the link came up; bouncing the link (%d)\n", (long)(now - up_since), bounces);
 				g_bounce_until = now + 2;
