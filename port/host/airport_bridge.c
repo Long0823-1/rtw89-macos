@@ -369,7 +369,7 @@ static void *bridge_thread(void *a)
 		{
 			time_t now = time(NULL);
 			int grace = daemon_has_last() ? 4 : 25;
-			if (!power_off && last_up != 1 && !fallback_done && now - started > grace && now - last_request_at > grace && now - last_fallback_try >= 3) {
+			if (getenv("RTW89_FALLBACK") && !power_off && last_up != 1 && !fallback_done && now - started > grace && now - last_request_at > grace && now - last_fallback_try >= 3) {
 				last_fallback_try = now;
 				if (daemon_fallback_connect() == 0) fallback_done = 1;
 			}

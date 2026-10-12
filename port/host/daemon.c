@@ -473,7 +473,8 @@ static void *watchdog_thread(void *arg)
 			if (++misses >= 2) { fprintf(stderr, "[daemon] adapter removed, exiting\n"); fflush(stderr); _exit(1); }
 		} else misses = 0;
 		/* a healthy link receives beacons constantly; no frames at all for 6 s means the RX path is wedged */
-		if (D.state == D_CONNECTED || D.state == D_IDLE || D.state == D_SCANNING) {
+		/* only a connected link is guaranteed to hear beacons constantly; an idle adapter on a quiet channel hears nothing */
+		if (D.state == D_CONNECTED || D.link_up) {
 			unsigned long now = st_rx_frames;
 			if (now == last_rx) {
 				if (++stalled >= 3) {
