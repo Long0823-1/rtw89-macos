@@ -336,6 +336,11 @@ void daemon_set_autoconnect(int on)
 
 void daemon_disconnect_request(void)
 {
+	/* macOS does not know a link the daemon made by itself: its disconnect (sent just before it joins the same network) would only drop a good link */
+	pthread_mutex_lock(&D.lock);
+	bool ignore = (D.state == D_CONNECTED || D.link_up) && !D.sys_assoc;
+	pthread_mutex_unlock(&D.lock);
+	if (ignore) { fprintf(stderr, "[daemon] ignoring system disconnect: macOS does not own this link\n"); return; }
 	pthread_mutex_lock(&D.lock); D.want_active = false; D.autoconnect = false; D.link_lost = (D.state == D_CONNECTED); if (D.state == D_FAILED) D.state = D_IDLE; pthread_cond_broadcast(&D.cond); pthread_mutex_unlock(&D.lock);
 }
 
