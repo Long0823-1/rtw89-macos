@@ -9,7 +9,15 @@ idle=0
 while true; do
 	sleep 8
 	[ "$(networksetup -getairportpower $IF 2>/dev/null | awk '{print $NF}')" = "On" ] || { idle=0; continue; }
-	case "$(state)" in
+	status=$(echo status | nc -U $SOCK 2>/dev/null)
+	st=$(echo "$status" | sed -n 's/.*"state":"\([a-z_]*\)".*/\1/p')
+	if [ "$st" = connected ] && echo "$status" | grep -q '"sys":0'; then
+		# the daemon joined by itself (e.g. before login) and macOS does not know the link: let macOS join the same network once
+		ssid=$(echo "$status" | sed -n 's/.*"ssid":"\([^"]*\)".*/\1/p')
+		[ -n "$ssid" ] && networksetup -setairportnetwork $IF "$ssid" >/dev/null 2>&1
+		idle=0; sleep 10; continue
+	fi
+	case "$st" in
 		idle|failed) idle=$((idle + 1)) ;;
 		*) idle=0; continue ;;
 	esac

@@ -32,6 +32,8 @@ static struct {
 	char cur_ssid[33], err[96];
 	time_t connected_at;
 	bool link_up;		/* 802.11 link established (handshake done), before DHCP */
+	bool sys_assoc;		/* the current link was requested by macOS (it knows about it) */
+	bool want_sys;		/* the pending connect request comes from macOS */
 	unsigned char want_pmk[32];
 	bool want_pmk_set;
 } D = { .lock = PTHREAD_MUTEX_INITIALIZER, .cond = PTHREAD_COND_INITIALIZER, .route_default = false, .autoconnect = true };
@@ -187,6 +189,7 @@ static void cmd_status(FILE *f)
 	json_str(f, err);
 	char rr[48]; mlme_rx_rate_str(rr, sizeof rr);
 	fprintf(f, ",\"rx_rate\":\"%s\",\"width\":%u", rr, g_mlme.width == NL80211_CHAN_WIDTH_80 ? 80 : g_mlme.width == NL80211_CHAN_WIDTH_40 ? 40 : 20);
+	fprintf(f, ",\"sys\":%d", D.sys_assoc ? 1 : 0);
 	fprintf(f, ",\"rx_frames\":%lu,\"rx_data\":%lu,\"rx_bytes\":%lu,\"rx_undecrypted\":%lu,\"rx_undec_group\":%lu,\"rx_undec_uni\":%lu,\"utun_wr_err\":%lu", st_rx_frames, st_rx_data, st_rx_bytes, st_rx_undecrypted, st_rx_undec_group, st_rx_undec_uni, net_wr_err);
 	fprintf(f, ",\"known\":[");
 	for (int i = 0; i < nknown; i++) { if (i) fputc(',', f); json_str(f, known[i].ssid); }
@@ -226,6 +229,8 @@ void daemon_request_scan(void)
 }
 extern void airport_bridge_start(void);
 extern void airport_assoc_failed(void);
+extern void airport_bounce_link(void);
+static int g_from_fallback;
 extern int airport_data_ready(void);
 extern void airport_data_active(int on);
 extern void airport_publish_start(const unsigned char mac[6]);
@@ -239,7 +244,15 @@ int daemon_connect_request(const char *ssid, const char *psk, bool open, const u
 	pthread_mutex_lock(&D.lock);
 	bool same = (D.state == D_CONNECTED || D.link_up) && !strcmp(D.cur_ssid, ssid);
 	pthread_mutex_unlock(&D.lock);
-	if (same) return 0;	/* already on this network: nothing to do, the link event is already reported */
+	if (same) {
+		/* already on this network. If the daemon joined by itself macOS does not know the link: bounce it so that macOS sees a fresh join */
+		pthread_mutex_lock(&D.lock);
+		bool bounce = !D.sys_assoc && !g_from_fallback;
+		if (!g_from_fallback) D.sys_assoc = true;
+		pthread_mutex_unlock(&D.lock);
+		if (bounce) airport_bounce_link();
+		return 0;
+	}
 	bool use_open = open;
 	const unsigned char *pmk_to_use = pmk;
 	if (!open && (!psk || !*psk)) {
@@ -263,7 +276,8 @@ int daemon_connect_request(const char *ssid, const char *psk, bool open, const u
 	if (use_pmk) { memcpy(D.want_pmk, pmk_to_use, 32); D.want_pmk_set = true; } else D.want_pmk_set = false;
 	snprintf(D.want_ssid, sizeof D.want_ssid, "%s", ssid);
 	snprintf(D.want_psk, sizeof D.want_psk, "%s", use_psk);
-	D.want_open = use_open; D.want_active = true; D.autoconnect = !airport_data_ready(); D.link_lost = (D.state == D_CONNECTED);	/* with the en3 driver macOS decides what to join */
+	D.want_open = use_open; D.want_active = true; D.autoconnect = !airport_data_ready(); D.link_lost = (D.state == D_CONNECTED);
+	D.want_sys = !g_from_fallback;	/* with the en3 driver macOS decides what to join */
 	pthread_cond_broadcast(&D.cond);
 	pthread_mutex_unlock(&D.lock);
 	return 0;
@@ -299,7 +313,10 @@ int daemon_fallback_connect(void)
 	mlme_unlock();
 	if (!best[0]) return -1;
 	fprintf(stderr, "[daemon] nothing asked us to connect; joining the strongest known network \"%s\" (%d dBm)\n", best, best_sig);
-	return daemon_connect_request(best, NULL, false, NULL);
+	g_from_fallback = 1;
+	int fr = daemon_connect_request(best, NULL, false, NULL);
+	g_from_fallback = 0;
+	return fr;
 }
 
 void daemon_set_autoconnect(int on)
@@ -525,7 +542,7 @@ static void *watchdog_thread(void *arg)
 /* ---------------- supervisor ---------------- */
 static void tear_down_link(void)
 {
-	pthread_mutex_lock(&D.lock); D.link_up = false; pthread_mutex_unlock(&D.lock);
+	pthread_mutex_lock(&D.lock); D.link_up = false; D.sys_assoc = false; pthread_mutex_unlock(&D.lock);
 	airport_data_active(0);
 	net_down();
 	if (g_mlme.state != MLME_IDLE) mlme_disconnect();
@@ -660,7 +677,7 @@ int daemon_main(void)
 			sleep(1);
 			r = mlme_connect(ssid, open ? NULL : psk);
 		}
-		if (r == 0) { pthread_mutex_lock(&D.lock); D.link_up = true; pthread_mutex_unlock(&D.lock); }
+		if (r == 0) { pthread_mutex_lock(&D.lock); D.link_up = true; D.sys_assoc = D.want_sys; pthread_mutex_unlock(&D.lock); }
 		if (r == 0 && !getenv("RTW89_UTUN")) {
 			/* macOS drives en3 (DHCP, ARP, IPv6 included); frames are exchanged with RTW89Airport.kext */
 			for (int w = 0; w < 40 && !airport_data_ready(); w++) usleep(500000);

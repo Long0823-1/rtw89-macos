@@ -243,6 +243,7 @@ static void handle_assoc(io_service_t s)
 
 static int last_up = -1;
 static time_t g_bounce_until;
+void airport_bounce_link(void) { g_bounce_until = time(NULL) + 2; }
 static int have_ipv4(void)
 {
 	struct ifaddrs *ifa, *p;
@@ -369,8 +370,8 @@ static void *bridge_thread(void *a)
 		/* with a remembered network (e.g. after a restart of the daemon) the grace period is short; retry until a scan has found it */
 		{
 			time_t now = time(NULL);
-			int grace = daemon_has_last() ? 4 : 25;
-			if (getenv("RTW89_FALLBACK") && !power_off && last_up != 1 && !fallback_done && now - started > grace && now - last_request_at > grace && now - last_fallback_try >= 3) {
+			int grace = daemon_has_last() ? 1 : 25;
+			if (!getenv("RTW89_NOFALLBACK") && !power_off && last_up != 1 && !fallback_done && now - started > grace && now - last_request_at > grace && now - last_fallback_try >= 3) {
 				last_fallback_try = now;
 				if (daemon_fallback_connect() == 0) fallback_done = 1;
 			}
