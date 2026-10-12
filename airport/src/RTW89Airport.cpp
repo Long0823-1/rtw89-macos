@@ -15,6 +15,7 @@ bool RTW89Airport::init(OSDictionary *properties)
 	fNetIf = nullptr;
 	fPower = 1;
 	fClient = nullptr;
+	fAwdl = fP2pDev = fP2pGo = nullptr;
 	fDataActive = false;
 	fAssocFailSeq = 0;
 	fTxCalls = fTxQueued = fRxOk = fRxFail = fBpfCalls = fBpfLastDlt = fBpfQueued = 0;
@@ -96,9 +97,16 @@ void RTW89Airport::applyLink(bool up)
 	}
 	/* a real driver announces every part of a join/leave, also when the join was not started by macOS */
 	fNetIf->postMessage(APPLE80211_M_SSID_CHANGED);
-	fNetIf->postMessage(APPLE80211_M_BSSID_CHANGED);
 	if (up) fNetIf->postMessage(APPLE80211_M_ASSOC_DONE);
-	fNetIf->postMessage(APPLE80211_M_LINK_CHANGED);
+	{	/* airportd rejects a LINK_CHANGED event without its 32-byte payload */
+		struct { apple80211_link_changed_event_data d; UInt8 pad[32 - sizeof(apple80211_link_changed_event_data)]; } ev;
+		static_assert(sizeof(apple80211_link_changed_event_data) <= 32, "link event too large");
+		memset(&ev, 0, sizeof(ev));
+		ev.d.isLinkDown = !up;
+		if (up) ev.d.rssi = (uint32_t)(int32_t)fLink.rssi;
+		else { ev.d.voluntary = true; ev.d.reason = APPLE80211_LINK_DOWN_REASON_DEAUTH; }
+		fNetIf->postMessage(APPLE80211_M_LINK_CHANGED, &ev, 32);
+	}
 }
 
 bool RTW89Airport::createMediumTables(const IONetworkMedium **primary)
@@ -601,6 +609,27 @@ SInt32 RTW89Airport::apple80211RequestImpl(unsigned int request_type, int reques
 		if (fScanCursor >= fScanN) fScanWrap = true;
 		return kIOReturnSuccess;
 	}
+	case APPLE80211_IOC_VIRTUAL_IF_CREATE: {
+		if (get) return kIOReturnError;
+		auto *vd = (apple80211_virt_if_create_data *)data;
+		ether_addr mac;
+		memcpy(mac.octet, vd->mac, 6);
+		IO80211P2PInterface **slot = nullptr;
+		const char *name = "p2p";
+		if (vd->role == APPLE80211_VIF_P2P_DEVICE) slot = &fP2pDev;
+		else if (vd->role == APPLE80211_VIF_P2P_GO) slot = &fP2pGo;
+		else if (vd->role == APPLE80211_VIF_AWDL) { slot = &fAwdl; name = "awdl"; }
+		else return kIOReturnError;
+		if (*slot) return kIOReturnSuccess;	/* already there */
+		IO80211P2PInterface *inf = new IO80211P2PInterface;
+		if (!inf) return kIOReturnError;
+		if (!inf->init(this, &mac, vd->role, name)) { inf->release(); return kIOReturnError; }
+		*slot = inf;
+		setProperty("RTW89VirtualIf", name);
+		return kIOReturnSuccess;
+	}
+	case APPLE80211_IOC_VIRTUAL_IF_DELETE:
+		return kIOReturnSuccess;	/* the objects stay until the controller goes away */
 	case APPLE80211_IOC_NOISE: {
 		if (!get) return kIOReturnError;
 		auto *nd = (apple80211_noise_data *)data;

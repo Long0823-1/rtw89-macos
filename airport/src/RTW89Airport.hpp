@@ -67,6 +67,7 @@ private:
 	void publishDataStats();
 	RTW89AirportUserClient *fClient;
 	bool fDataActive;
+	IO80211P2PInterface *fAwdl, *fP2pDev, *fP2pGo;
 	IOCommandGate *fGate;
 	rtw_link fLink;
 	UInt32 fAssocSeq, fDisassocSeq;
