@@ -612,6 +612,11 @@ SInt32 RTW89Airport::apple80211RequestImpl(unsigned int request_type, int reques
 	case APPLE80211_IOC_VIRTUAL_IF_CREATE: {
 		if (get) return kIOReturnError;
 		auto *vd = (apple80211_virt_if_create_data *)data;
+		{	/* keep the request visible in ioreg: it tells which interface roles macOS wants */
+			char b[120];
+			snprintf(b, sizeof b, "role=%u bsd=%.16s mac=%02x:%02x:%02x:%02x:%02x:%02x unk1=%u", (unsigned)vd->role, (const char *)vd->bsd_name, vd->mac[0], vd->mac[1], vd->mac[2], vd->mac[3], vd->mac[4], vd->mac[5], (unsigned)vd->unk1);
+			setProperty("RTW89VifReq", b);
+		}
 		ether_addr mac;
 		memcpy(mac.octet, vd->mac, 6);
 		IO80211P2PInterface **slot = nullptr;
@@ -619,7 +624,7 @@ SInt32 RTW89Airport::apple80211RequestImpl(unsigned int request_type, int reques
 		if (vd->role == APPLE80211_VIF_P2P_DEVICE) slot = &fP2pDev;
 		else if (vd->role == APPLE80211_VIF_P2P_GO) slot = &fP2pGo;
 		else if (vd->role == APPLE80211_VIF_AWDL) { slot = &fAwdl; name = "awdl"; }
-		else return kIOReturnError;
+		else { setProperty("RTW89VifResult", "unknown role"); return kIOReturnError; }
 		if (*slot) return kIOReturnSuccess;	/* already there */
 		IO80211P2PInterface *inf = new IO80211P2PInterface;
 		if (!inf) return kIOReturnError;
