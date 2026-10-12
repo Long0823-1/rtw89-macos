@@ -151,7 +151,10 @@ IOReturn RTW89Airport::setProperties(OSObject *properties)
 		}
 	}
 	if (OSBoolean *done = OSDynamicCast(OSBoolean, d->getObject("RTW89ScanDone"))) {
-		if (done == kOSBooleanTrue && fNetIf) fNetIf->postMessage(APPLE80211_M_SCAN_DONE);
+		if (done == kOSBooleanTrue && fNetIf) {
+			scanDone(SOURCE_1, 0);	/* clears the family's "scanning" state, which otherwise answers new scan requests with EBUSY */
+			fNetIf->postMessage(APPLE80211_M_SCAN_DONE);
+		}
 	}
 	return kIOReturnSuccess;
 }
