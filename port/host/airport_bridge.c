@@ -320,7 +320,7 @@ static void *bridge_thread(void *a)
 			scan_wanted = true;
 		}
 		/* macOS asks for scans in a tight loop (every answer makes it ask again): answer from the merged cache, at most once
-		 * every 3 s, and run a real scan only when the cache is stale (30 s while connected, 15 s otherwise) */
+		 * every 0.25 s, and run a real scan only when the cache is stale (30 s while connected, 15 s otherwise) */
 		if (scan_wanted) {
 			long now_ms = mono_ms();
 			time_t now = time(NULL);
@@ -328,7 +328,7 @@ static void *bridge_thread(void *a)
 			if (scan_inflight) {
 				if (daemon_scan_count() > scans_at_request) { scan_inflight = false; push_scan(svc); last_push_ms = now_ms; scan_wanted = false; }
 			} else if (g_cache_n > 0 && now - g_cache_scan_at <= ttl) {
-				if (now_ms - last_push_ms >= 3000) { push_cache(svc); last_push_ms = now_ms; scan_wanted = false; }
+				if (now_ms - last_push_ms >= 250) { push_cache(svc); last_push_ms = now_ms; scan_wanted = false; }	/* answer quickly: a late SCAN_DONE makes airportd's next scan fail with EBUSY (16) */
 			} else {
 				scans_at_request = daemon_scan_count();
 				scan_inflight = true;
