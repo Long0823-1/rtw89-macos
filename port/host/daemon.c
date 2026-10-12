@@ -38,7 +38,7 @@ static struct {
 
 /* ---------------- known networks (root-only file) ---------------- */
 #define MAX_KNOWN 32
-static struct { char ssid[33]; char psk[65]; bool open; } known[MAX_KNOWN];
+static struct { char ssid[33]; char psk[65]; bool open; bool has_pmk; unsigned char pmk[32]; } known[MAX_KNOWN];
 static int nknown;
 static const char *known_path(void) { const char *e = getenv("RTW89_KNOWN"); return e ? e : "/var/db/rtw89d/known.conf"; }
 
@@ -64,7 +64,14 @@ static void known_load(void)
 		if (hex_dec(a, known[nknown].ssid, sizeof known[0].ssid) < 0) continue;
 		known[nknown].open = !strcmp(b, "-");
 		known[nknown].psk[0] = 0;
-		if (!known[nknown].open && hex_dec(b, known[nknown].psk, sizeof known[0].psk) < 0) continue;
+		known[nknown].has_pmk = false;
+		if (!strncmp(b, "pmk:", 4)) {
+			/* a PMK that macOS handed over when the network was joined from System Settings (no passphrase known) */
+			char tmp[40];
+			if (strlen(b + 4) != 64 || hex_dec(b + 4, tmp, sizeof tmp) != 32) continue;
+			memcpy(known[nknown].pmk, tmp, 32);
+			known[nknown].has_pmk = true;
+		} else if (!known[nknown].open && hex_dec(b, known[nknown].psk, sizeof known[0].psk) < 0) continue;
 		nknown++;
 	}
 	fclose(f);
@@ -83,7 +90,9 @@ static void known_save(void)
 	for (int i = 0; i < nknown; i++) {
 		char a[80], b[160];
 		hex_enc(known[i].ssid, strlen(known[i].ssid), a);
-		if (known[i].open) strcpy(b, "-"); else hex_enc(known[i].psk, strlen(known[i].psk), b);
+		if (known[i].open) strcpy(b, "-");
+		else if (!known[i].psk[0] && known[i].has_pmk) { strcpy(b, "pmk:"); hex_enc((const char *)known[i].pmk, 32, b + 4); }
+		else hex_enc(known[i].psk, strlen(known[i].psk), b);
 		fprintf(f, "%s %s\n", a, b);
 	}
 	fclose(f);
@@ -98,6 +107,20 @@ static void known_add(const char *ssid, const char *psk, bool open)
 	snprintf(known[i].ssid, sizeof known[i].ssid, "%s", ssid);
 	snprintf(known[i].psk, sizeof known[i].psk, "%s", psk ? psk : "");
 	known[i].open = open;
+	known[i].has_pmk = false;
+	known_save();
+}
+
+static void known_add_pmk(const char *ssid, const unsigned char *pmk)
+{
+	int i;
+	for (i = 0; i < nknown; i++) if (!strcmp(known[i].ssid, ssid)) break;
+	if (i < nknown && known[i].psk[0]) return;		/* a passphrase is better than a PMK */
+	if (i == nknown) { if (nknown >= MAX_KNOWN) return; nknown++; known[i].psk[0] = 0; }
+	snprintf(known[i].ssid, sizeof known[i].ssid, "%s", ssid);
+	known[i].open = false;
+	known[i].has_pmk = true;
+	memcpy(known[i].pmk, pmk, 32);
 	known_save();
 }
 
@@ -218,21 +241,26 @@ int daemon_connect_request(const char *ssid, const char *psk, bool open, const u
 	pthread_mutex_unlock(&D.lock);
 	if (same) return 0;	/* already on this network: nothing to do, the link event is already reported */
 	bool use_open = open;
+	const unsigned char *pmk_to_use = pmk;
 	if (!open && (!psk || !*psk)) {
 		int k;
 		for (k = 0; k < nknown; k++) if (!strcmp(known[k].ssid, ssid)) break;
-		if (k == nknown) {
-			if (!pmk) return -1;
-			snprintf(use_psk, sizeof use_psk, "pmk-from-macos");	/* placeholder, the PMK below is used instead */
-			use_pmk = true;
-		} else {
+		if (k < nknown && known[k].psk[0]) {
 			snprintf(use_psk, sizeof use_psk, "%s", known[k].psk);
 			use_open = known[k].open;
-		}
+		} else if (k < nknown && known[k].has_pmk && !pmk) {
+			pmk_to_use = known[k].pmk;		/* macOS gave this PMK earlier; reuse it when it joins without one */
+			snprintf(use_psk, sizeof use_psk, "pmk-from-macos");
+			use_pmk = true;
+		} else if (pmk) {
+			known_add_pmk(ssid, pmk);
+			snprintf(use_psk, sizeof use_psk, "pmk-from-macos");
+			use_pmk = true;
+		} else return -1;
 	} else if (!open) snprintf(use_psk, sizeof use_psk, "%s", psk);
 	if (!use_pmk) known_add(ssid, use_psk, use_open);
 	pthread_mutex_lock(&D.lock);
-	if (use_pmk) { memcpy(D.want_pmk, pmk, 32); D.want_pmk_set = true; } else D.want_pmk_set = false;
+	if (use_pmk) { memcpy(D.want_pmk, pmk_to_use, 32); D.want_pmk_set = true; } else D.want_pmk_set = false;
 	snprintf(D.want_ssid, sizeof D.want_ssid, "%s", ssid);
 	snprintf(D.want_psk, sizeof D.want_psk, "%s", use_psk);
 	D.want_open = use_open; D.want_active = true; D.autoconnect = !airport_data_ready(); D.link_lost = (D.state == D_CONNECTED);	/* with the en3 driver macOS decides what to join */
