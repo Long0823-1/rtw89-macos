@@ -305,6 +305,7 @@ static void *bridge_thread(void *a)
 	int bounces = 0, fallback_done = 0;
 	time_t last_fallback_try = 0;
 	long last_assoc_seen = -1;
+	long power_off = 0;
 	bool scan_wanted = false, scan_inflight = false;
 	long last_push_ms = 0;
 	unsigned long scans_at_request = 0;
@@ -335,6 +336,15 @@ static void *bridge_thread(void *a)
 				fprintf(stderr, "[airport] scanning for the system\n");
 			}
 		}
+		{	/* Wi-Fi switched off or on in System Settings */
+			long po = read_num(svc, CFSTR("RTW89PowerOff"));
+			if (po != power_off) {
+				power_off = po;
+				fprintf(stderr, "[airport] Wi-Fi turned %s by macOS\n", po ? "off" : "on");
+				if (po) daemon_disconnect_request();
+				else { fallback_done = 0; last_request_at = time(NULL); started = time(NULL); }
+			}
+		}
 		long as = read_num(svc, CFSTR("RTW89AssocSeq"));
 		if (as != last_assoc) { last_assoc = as; last_request_at = time(NULL); handle_assoc(svc); }
 		long ds = read_num(svc, CFSTR("RTW89DisassocSeq"));
@@ -359,7 +369,7 @@ static void *bridge_thread(void *a)
 		{
 			time_t now = time(NULL);
 			int grace = daemon_has_last() ? 4 : 25;
-			if (last_up != 1 && !fallback_done && now - started > grace && now - last_request_at > grace && now - last_fallback_try >= 3) {
+			if (!power_off && last_up != 1 && !fallback_done && now - started > grace && now - last_request_at > grace && now - last_fallback_try >= 3) {
 				last_fallback_try = now;
 				if (daemon_fallback_connect() == 0) fallback_done = 1;
 			}

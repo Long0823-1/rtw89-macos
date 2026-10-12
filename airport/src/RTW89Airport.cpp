@@ -336,6 +336,7 @@ SInt32 RTW89Airport::apple80211RequestImpl(unsigned int request_type, int reques
 		} else if (pd->num_radios > 0) {
 			fPower = pd->power_state[0] ? 1 : 0;
 			LOG("setPOWER %u\n", (unsigned)fPower);
+			setProperty("RTW89PowerOff", (UInt64)(fPower ? 0 : 1), 32);	/* rtw89d disconnects and stops joining while macOS has Wi-Fi off */
 		}
 		return kIOReturnSuccess;
 	}
