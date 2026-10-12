@@ -287,6 +287,13 @@ static void push_link(io_service_t s, struct rtw_link *last)
 	last_up = l.up;
 }
 
+static long mono_ms(void)
+{
+	struct timespec ts;
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
+}
+
 static void *bridge_thread(void *a)
 {
 	io_service_t svc = 0;
@@ -298,21 +305,35 @@ static void *bridge_thread(void *a)
 	int bounces = 0, fallback_done = 0;
 	time_t last_fallback_try = 0;
 	long last_assoc_seen = -1;
-	bool pending = false;
+	bool scan_wanted = false, scan_inflight = false;
+	long last_push_ms = 0;
 	unsigned long scans_at_request = 0;
 	for (;;) {
 		usleep(250000);
-		if (!svc) { svc = find_kext(); if (!svc) continue; last = read_seq(svc); last_assoc = read_num(svc, CFSTR("RTW89AssocSeq")); last_disassoc = read_num(svc, CFSTR("RTW89DisassocSeq")); memset(&last_link, 0xff, sizeof last_link); fprintf(stderr, "[airport] kext found\n"); g_active = 0; data_connect(svc); continue; }
+		if (!svc) { svc = find_kext(); if (!svc) continue; last = 0; last_assoc = read_num(svc, CFSTR("RTW89AssocSeq")); last_disassoc = read_num(svc, CFSTR("RTW89DisassocSeq")); memset(&last_link, 0xff, sizeof last_link); fprintf(stderr, "[airport] kext found\n"); g_active = 0; data_connect(svc); continue; }
 		if (!g_conn) data_connect(svc);
 		long seq = read_seq(svc);
 		if (IORegistryEntryGetRegistryEntryID(svc, &(uint64_t){0}) != KERN_SUCCESS) { IOObjectRelease(svc); svc = 0; continue; }	/* kext went away */
 		if (seq != last) {
 			last = seq;
-			scans_at_request = daemon_scan_count();
-			if (g_cache_n > 0 && time(NULL) - g_cache_scan_at <= 20) { push_cache(svc); pending = false; }	/* answer at once from the merged cache */
-			else pending = true;
-			daemon_request_scan();
-			fprintf(stderr, "[airport] scan requested by the system (seq %ld)\n", seq);
+			scan_wanted = true;
+		}
+		/* macOS asks for scans in a tight loop (every answer makes it ask again): answer from the merged cache, at most once
+		 * every 3 s, and run a real scan only when the cache is stale (30 s while connected, 15 s otherwise) */
+		if (scan_wanted) {
+			long now_ms = mono_ms();
+			time_t now = time(NULL);
+			long ttl = last_up == 1 ? 30 : 15;
+			if (scan_inflight) {
+				if (daemon_scan_count() > scans_at_request) { scan_inflight = false; push_scan(svc); last_push_ms = now_ms; scan_wanted = false; }
+			} else if (g_cache_n > 0 && now - g_cache_scan_at <= ttl) {
+				if (now_ms - last_push_ms >= 3000) { push_cache(svc); last_push_ms = now_ms; scan_wanted = false; }
+			} else {
+				scans_at_request = daemon_scan_count();
+				scan_inflight = true;
+				daemon_request_scan();
+				fprintf(stderr, "[airport] scanning for the system\n");
+			}
 		}
 		long as = read_num(svc, CFSTR("RTW89AssocSeq"));
 		if (as != last_assoc) { last_assoc = as; last_request_at = time(NULL); handle_assoc(svc); }
@@ -344,7 +365,6 @@ static void *bridge_thread(void *a)
 			}
 		}
 		if (g_active && tick % 20 == 0) fprintf(stderr, "[airport] data: tx %lu rx %lu\n", g_tx_n, g_rx_n);
-		if (pending && daemon_scan_count() > scans_at_request) { pending = false; push_scan(svc); }
 	}
 	return NULL;
 }
