@@ -184,7 +184,7 @@ static void cache_update(void)
 	g_cache_scan_at = now;
 }
 
-static void push_cache(io_service_t s)
+static void push_cache_ex(io_service_t s, bool done)
 {
 	static struct rtw_scan_ent ent[RTW_AP_MAX_SCAN];
 	int n = 0;
@@ -200,9 +200,11 @@ static void push_cache(io_service_t s)
 	CFDataRef d = CFDataCreate(kCFAllocatorDefault, (const UInt8 *)ent, n * sizeof(ent[0]));
 	IOReturn r = IORegistryEntrySetCFProperty(s, CFSTR("RTW89ScanResults"), d);
 	CFRelease(d);
-	IOReturn r2 = IORegistryEntrySetCFProperty(s, CFSTR("RTW89ScanDone"), kCFBooleanTrue);
-	fprintf(stderr, "[airport] pushed %d scan results (0x%x, 0x%x)\n", n, r, r2);
+	IOReturn r2 = done ? IORegistryEntrySetCFProperty(s, CFSTR("RTW89ScanDone"), kCFBooleanTrue) : 0;
+	if (done) fprintf(stderr, "[airport] pushed %d scan results (0x%x, 0x%x)\n", n, r, r2);
 }
+
+static void push_cache(io_service_t s) { push_cache_ex(s, true); }
 
 static void push_scan(io_service_t s)
 {
@@ -319,30 +321,29 @@ static void *bridge_thread(void *a)
 			last = seq;
 			scan_wanted = true;
 		}
-		/* macOS asks for scans in a tight loop (every answer makes it ask again): answer from the merged cache, at most once
-		 * every 0.25 s, and run a real scan only when the cache is stale (30 s while connected, 15 s otherwise) */
-		if (scan_wanted) {
+		/* macOS refuses every new scan request (EBUSY) until SCAN_DONE for the previous one: always answer at once from the merged
+		 * cache and refresh it with a real scan in the background when it is stale */
+		{
 			long now_ms = mono_ms();
 			time_t now = time(NULL);
 			long ttl = last_up == 1 ? 30 : 15;
-			if (scan_inflight) {
-				if (daemon_scan_count() > scans_at_request) { scan_inflight = false; push_scan(svc); last_push_ms = now_ms; scan_wanted = false; }
-			} else if (g_cache_n > 0 && now - g_cache_scan_at <= ttl) {
-				if (now_ms - last_push_ms >= 250) { push_cache(svc); last_push_ms = now_ms; scan_wanted = false; }	/* answer quickly: a late SCAN_DONE makes airportd's next scan fail with EBUSY (16) */
-			} else {
+			bool stale = g_cache_n == 0 || now - g_cache_scan_at > ttl;
+			if (scan_inflight && daemon_scan_count() > scans_at_request) {
+				scan_inflight = false;
+				cache_update();
+				if (scan_wanted) { push_cache_ex(svc, true); last_push_ms = now_ms; scan_wanted = false; }
+				else push_cache_ex(svc, false);	/* only refresh the table; no event nobody asked for */
+			}
+			if (scan_wanted) {
+				if (g_cache_n > 0) {
+					if (now_ms - last_push_ms >= 250) { push_cache_ex(svc, true); last_push_ms = now_ms; scan_wanted = false; }
+				}
+			}
+			if (stale && !scan_inflight && (scan_wanted || now - g_cache_scan_at > 60)) {
 				scans_at_request = daemon_scan_count();
 				scan_inflight = true;
 				daemon_request_scan();
 				fprintf(stderr, "[airport] scanning for the system\n");
-			}
-		}
-		{	/* Wi-Fi switched off or on in System Settings */
-			long po = read_num(svc, CFSTR("RTW89PowerOff"));
-			if (po != power_off) {
-				power_off = po;
-				fprintf(stderr, "[airport] Wi-Fi turned %s by macOS\n", po ? "off" : "on");
-				if (po) daemon_disconnect_request();
-				else { fallback_done = 0; last_request_at = time(NULL); started = time(NULL); }
 			}
 		}
 		long as = read_num(svc, CFSTR("RTW89AssocSeq"));
