@@ -547,6 +547,17 @@ SInt32 RTW89Airport::apple80211RequestImpl(unsigned int request_type, int reques
 	case APPLE80211_IOC_SCAN_REQ:
 	case APPLE80211_IOC_SCAN_REQ_MULTIPLE: {
 		if (get) return kIOReturnError;
+		{	/* keep the last request visible in ioreg: the parameters tell what macOS expects from the scan */
+			char b[200];
+			if (request_number == APPLE80211_IOC_SCAN_REQ) {
+				auto *sd = (apple80211_scan_data *)data;
+				snprintf(b, sizeof b, "SCAN_REQ type=%u bss=%u phy=0x%x dwell=%u rest=%u nchan=%u first=%u ssid_len=%u", (unsigned)sd->scan_type, (unsigned)sd->bss_type, (unsigned)sd->phy_mode, (unsigned)sd->dwell_time, (unsigned)sd->rest_time, (unsigned)sd->num_channels, sd->num_channels ? (unsigned)sd->channels[0].channel : 0u, (unsigned)sd->ssid_len);
+			} else {
+				auto *sm = (apple80211_scan_multiple_data *)data;
+				snprintf(b, sizeof b, "SCAN_REQ_MULTIPLE type=%u ssids=%u bssids=%u dwell=%u rest=%u nchan=%u first=%u", (unsigned)sm->scan_type, (unsigned)sm->ssid_count, (unsigned)sm->bssid_count, (unsigned)sm->dwell_time, (unsigned)sm->rest_time, (unsigned)sm->num_channels, sm->num_channels ? (unsigned)sm->channels[0].channel : 0u);
+			}
+			setProperty("RTW89LastScanReq", b);
+		}
 		if (!fPower) return 22;
 		fScanSeq++;
 		setProperty("RTW89ScanSeq", (UInt64)fScanSeq, 32);
