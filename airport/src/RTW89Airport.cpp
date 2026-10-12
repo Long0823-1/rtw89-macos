@@ -94,6 +94,10 @@ void RTW89Airport::applyLink(bool up)
 		fNetIf->setLinkState(kIO80211NetworkLinkDown, 0);
 		if (ifnet_t ifp = fNetIf->getIfnet()) ifnet_set_flags(ifp, 0, IFF_RUNNING);
 	}
+	/* a real driver announces every part of a join/leave, also when the join was not started by macOS */
+	fNetIf->postMessage(APPLE80211_M_SSID_CHANGED);
+	fNetIf->postMessage(APPLE80211_M_BSSID_CHANGED);
+	if (up) fNetIf->postMessage(APPLE80211_M_ASSOC_DONE);
 	fNetIf->postMessage(APPLE80211_M_LINK_CHANGED);
 }
 
