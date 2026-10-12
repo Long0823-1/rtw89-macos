@@ -162,3 +162,10 @@ Open items: WPA3-SAE from System Settings (needs the passphrase, macOS only prov
 
 Throughput over en3 (USB 2.0, 80 MHz, WPA2, ~-41 dBm): curl download ~142 Mbit/s, upload ~155 Mbit/s, LAN ping ~2.6 ms
 (networkQuality reports less because of its responsiveness tests). ~1% of TX frames are dropped when the shared TX queue is full.
+
+Lessons (System Settings integration, continued)
+* Posting LINK_CHANGED with its 32-byte payload makes airportd process link events fully and the "other networks" list went empty; the plain
+  event (airportd logs a length complaint) keeps the list working. BSSID_CHANGED needs a 24-byte payload and was dropped.
+* airportd sends virtual interface roles in the macOS 13+ numbering (3 P2P device, 5 GO, 6 AWDL); the macOS 12 family wants 1/3/4.
+* macOS auto-join aborts with "driver not available (37)" and never sends ASSOCIATE by itself; networks are joined from System Settings.
+* Scans are answered from a merged cache at most every 3 s (macOS otherwise asks in a tight loop); network selection is left to macOS.

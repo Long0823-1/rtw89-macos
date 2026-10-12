@@ -99,7 +99,8 @@ void RTW89Airport::applyLink(bool up)
 	/* a real driver announces every part of a join/leave, also when the join was not started by macOS */
 	fNetIf->postMessage(APPLE80211_M_SSID_CHANGED);
 	if (up) fNetIf->postMessage(APPLE80211_M_ASSOC_DONE);
-	fNetIf->postMessage(APPLE80211_M_LINK_CHANGED);	/* test: the plain event (no payload) is what the list was working with */
+	/* keep the plain event: airportd logs a payload-length complaint, but adding the 32-byte payload made the network list empty */
+	fNetIf->postMessage(APPLE80211_M_LINK_CHANGED);
 }
 
 bool RTW89Airport::createMediumTables(const IONetworkMedium **primary)
