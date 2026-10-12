@@ -169,3 +169,7 @@ Lessons (System Settings integration, continued)
 * airportd sends virtual interface roles in the macOS 13+ numbering (3 P2P device, 5 GO, 6 AWDL); the macOS 12 family wants 1/3/4.
 * macOS auto-join aborts with "driver not available (37)" and never sends ASSOCIATE by itself; networks are joined from System Settings.
 * Scans are answered from a merged cache at most every 3 s (macOS otherwise asks in a tight loop); network selection is left to macOS.
+
+Auto-join: macOS' own auto-join aborts with "driver not available (37)" (it also asks APPLE80211_IOC_VIRTUAL_IF_ROLE for en3). A user LaunchAgent
+(`install/wifi-autojoin.sh`) joins the preferred networks through `networksetup -setairportnetwork` when the daemon has been idle for ~16 s; macOS then
+issues the associate itself (without a PMK), so rtw89d stores the PMK macOS hands over on the first manual join (`pmk:` entries in known.conf).
