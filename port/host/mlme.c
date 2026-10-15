@@ -880,7 +880,8 @@ static int mlme_connect_once(const char *ssid, const char *psk)
 	memcpy(g_mlme.ssid, ssid, g_mlme.ssid_len);
 
 	b = find_bss(ssid);
-	if (!b) { mlme_scan(ssid); b = find_bss(ssid); }
+	/* a channel can be missed in a single sweep (DFS channels are listened to passively): try again before giving up */
+	for (int tries = 0; !b && tries < 4; tries++) { mlme_scan(ssid); b = find_bss(ssid); if (!b) fprintf(stderr, "[mlme] \"%s\" not seen in scan %d\n", ssid, tries + 1); }
 	if (!b) { fprintf(stderr, "[mlme] SSID \"%s\" not found\n", ssid); return -ENOENT; }
 	struct bss_entry bss = *b;
 	fprintf(stderr, "[mlme] selected %02x:%02x:%02x:%02x:%02x:%02x ch%d %d MHz %d dBm\n", bss.bssid[0], bss.bssid[1], bss.bssid[2], bss.bssid[3], bss.bssid[4], bss.bssid[5], bss.chan, bss.freq, bss.signal);
