@@ -74,3 +74,9 @@ Userspace Wi-Fi driver for the TP-Link Archer TX20U Nano (RTL8852B, USB) on macO
 `rtw89` driver** on top of a Linux-kernel-API compatibility layer, with IOKit USB, a minimal mac80211/MLME, a WPA2/WPA3 (SAE) supplicant,
 and a launchd daemon plus an IO80211 kext (RTW89Airport, interface en3) that makes the adapter appear in System Settings > Wi-Fi; macOS itself does DHCP/IPv6. A small kext (RTW89Hold) keeps IOUSBMassStorageDriver off the virtual CD. Verified on hardware: scan/connect/switch from System Settings, WPA2-PSK, IPv4/IPv6, 80 MHz with Block Ack (~140-155 Mbit/s over USB 2.0), automatic reconnect ~6 s after start. No AirDrop (AWDL); WPA3 only works from the daemon, not from System Settings. Needs OCLP's Modern Wireless patch plus OpenCore-injected IOSkywalkFamily/IO80211FamilyLegacy.
 Experimental; no warranty. Build: `scripts/fetch-firmware.sh && make -C port`. Licence: GPL-2.0 combined work, see `COPYING` and `THIRD_PARTY.md`.
+
+## Support / 開発支援
+
+開発・保守活動をKo-fiで支援できます。
+
+[Ko-fiで支援する](https://ko-fi.com/long0823)
