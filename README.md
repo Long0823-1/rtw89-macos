@@ -80,3 +80,10 @@ Experimental; no warranty. Build: `scripts/fetch-firmware.sh && make -C port`. L
 開発・保守活動をKo-fiで支援できます。
 
 [Ko-fiで支援する](https://ko-fi.com/long0823)
+
+## 関連記事
+
+ブログ「knowledge-storage.info」で関連する解説記事を公開しています。
+
+- [macOS Tahoe(Hackintosh)で TP-Link Archer TX20U Nano を Wi-Fi（tun ）として使えるようにした](https://knowledge-storage.info/2026/10/16/macos-tahoe-hackintosh-tp-link-archer-tx20u-nano-wi-fi/)
+- [macOS Tahoe(Hackintosh)で TP-Link Archer TX20U Nano を Wi-Fi として使えるようにした](https://knowledge-storage.info/2026/10/14/macos-tahoe-hackintosh-tp-link-tx20u-nano/)
